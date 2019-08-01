@@ -50,4 +50,4 @@ api point specifications are of two types:
 + `endpoint`: no further actions, just a process step from input to output
 + `action`: can have many processing steps, short-circuiting on failure
 
-see (the example)[example/test.ctr] for an example
+see [the example](example/test.ctr) for an example
