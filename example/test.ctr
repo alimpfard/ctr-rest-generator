@@ -1,0 +1,42 @@
+import generate: \*.
+
+type City [
+    string country,
+    string city,
+    int countryCode,
+    int cityCode
+].
+
+type Person [
+    string firstName,
+    string lastName,
+    City city
+].
+
+action getPeopleFromCity [
+    Request [
+        City city
+    ],
+    Response [
+        Person[] person
+    ],
+    Action 'search for person in db'
+].
+
+action deletePerson [
+    Request [
+        int personId
+    ],
+    Action ['get user from db',
+            'delete user']
+].
+
+endpoint countUsers [
+    Response [
+        int count
+    ]
+].
+
+
+api generate.
+            
