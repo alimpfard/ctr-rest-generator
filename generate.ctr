@@ -1,0 +1,499 @@
+import Library/Data/IO/Pen: 'pPen'.
+
+var errPen is pPen for: (File special: 'stderr').
+var outPen is pPen for: (File new: 'out.js', open: 'w+').
+
+var type is Object cnew: {
+  on: 'new' do: {}.
+  on: 'cnew:' do: {}.
+
+  allInstanceTypes => HashMap new.
+  structures => Map new.
+  alternative => False.
+  on: 'complete' do: {
+    alternative => False.
+  }.
+  on: 'allInstanceTypes' do: { ^my allInstanceTypes. }.
+  on: 'respondTo:' do: {:self:typename
+    typename = 'alternative' ifTrue: {
+      alternative => True.
+      ^me.
+    }.
+    var alternative is my alternative.
+    ^Object cnew: {
+      name => typename.
+      alternative => alternative.
+      type => self.
+      on: 'applyAll:' do: {:defn
+        my alternative ifTrue: {
+          errPen yellow write: 'type ${{my name}}$ has alternative definitions, ', resetColor.
+          errPen red writeln: 'it will not be recorded (TODO)', resetColor.
+        } ifFalse: {
+          var structureId is my type getOrCreateStructure: defn.
+          my type register: my name as: structureId.
+          Reflect addGlobalVariable: my name.
+          var type is Type cnew: { structureId => structureId. underlayingJSType => Nil. } named: my name.
+          Reflect set: my name to: type.
+        }.
+        my type complete.
+      }.
+    }.
+  }.
+  on: 'register:as:' do: {:name:structureId
+    my allInstanceTypes at: name, isNil ifFalse: {
+      my alternative ifFalse: {
+        errPen red writeln: 'structure $$structureId (${{miniPrintStructure: structureId}}$) already registered', resetColor.
+      }.
+      ^Nil.
+    }.
+    my allInstanceTypes put: structureId at: name.
+  }.
+  on: 'compileStructure:' do: {:str
+    var tymap is HashMap new.
+    str each_v: {:ntpair
+      tymap contains: ntpair fname, ifTrue: {
+        errPen red writeln: 'field ${{ntpair fname}}$ already exists in the structure as ${{tymap at: ntpair fname}}$, ignoring the new field', resetColor.
+      } ifFalse: {
+        tymap put: ntpair ftype at: ntpair fname.
+      }.
+    }.
+    ^tymap.
+  }.
+  on: 'getOrCreateStructure:' do: {:structure
+    var compiled is compileStructure: structure.
+    my structures put: compiled at: (var id is my structures count).
+    ^id.
+  }.
+  on: 'getStructure:' do: {:id
+    ^my structures at: id.
+  }.
+  on: 'miniPrintStructure:' do: {:id
+    var compiled is my structures at: id.
+    compiled isNil ifTrue: {
+      ^'{}'.
+    }.
+    ^miniPrintStructureEx: compiled.
+  }.
+  on: 'miniPrintStructureEx:' do: {:compiled
+    var s is '{'.
+    compiled each: {:k:v
+      s +=: '${{k}}$:${{v}}$, '.
+    }.
+    ^s from: 0 length: s length - 2, + '}'.
+  }.
+}.
+
+var Type is Object cnew: {
+  on: 'cnew:named:' do: {:blk:name
+    ^me cnew: blk, name: name.
+  }.
+  on: 'name:' do: {:name my name is name. }.
+  on: 'toString' do: { ^my name. }.
+  on: 'applyAll:' do: {
+    ^ArrayType getOrCreate: me.
+  }.
+  on: '_underlayingJSType' do: { ^my underlayingJSType or: my name. }.
+  on: 'respondTo:' do: {:self:name
+    ^Object cnew: {
+      ftype => self.
+      fname => name.
+      underlayingJSType => Nil.
+      genAccessors: ['fname', 'ftype'].
+      on: 'toString' do: {
+        ^'<%s %s>' % [my ftype, my fname].
+      }.
+      on: 'default:' do: {:def default => def. }.
+      on: 'type' do: { ^'NameTypePair'. }.
+      on: 'applyAll:' do: {:x default: x head. }.
+      on: '=' do: {:other
+        other type = 'NameTypePair' ifTrue: {
+          ^(my fname = other fname) & (my ftype = other ftype).
+        } ifFalse: {
+          ^False.
+        }.
+      }.
+    }.
+  }.
+}.
+
+var ArrayType is Type cnew: {
+  typemap => Map new.
+  on: 'getOrCreate:' do: {:inner
+    var instance is my typemap at: inner.
+    instance isNil ifTrue: {
+      instance is me create: inner.
+      my typemap put: instance at: inner.
+      ^instance.
+    } ifFalse: {
+      ^instance.
+    }.
+  }.
+  on: 'create:' do: {:inner
+    ^me cnew: {
+      etype => inner.
+    }.
+  }.
+  on: '_underlayingJSType' do: { ^'[' + (my etype _underlayingJSType or: my etype) + ']'. }.
+  on: 'toString' do: {
+    ^'%s[]' % [my etype].
+  }.
+}.
+
+var int is Type cnew: {
+  underlayingJSType => 'Number'.
+} named: 'int'.
+
+var string is Type cnew: {
+  underlayingJSType => 'String'.
+} named: 'string'.
+
+var double is Type cnew: {
+  underlayingJSType => 'Number'.
+} named: 'double'.
+
+var boolean is Type cnew: {
+  underlayingJSType => 'Boolean'.
+} named: 'boolean'.
+
+var enum is Object cnew: {
+  choicemap => Map new.
+  on: 'applyAll:' do: {:choices
+    var ty is my choicemap at: choices.
+    ty isNil ifTrue: {
+      ty is Type cnew: {
+        choices => choices.
+        underlayingJSType => 'String'.
+      } named: 'enum' + (my choicemap count).
+    }.
+    ^ty.
+  }.
+}.
+
+type register: 'int' as: int.
+type register: 'string' as: string.
+type register: 'double' as: double.
+type register: 'boolean' as: boolean.
+
+###################################  Request ###################################
+var Specification is Object cnew: {
+  on: 'toString' do: { ^'<Spec: ${{type miniPrintStructureEx: my fields}}$>'. }.
+  on: 'fields' do: { ^my fields. }.
+}.
+var RequestSpecification is Specification cnew: {
+
+}.
+var ResponseSpecification is Specification cnew: {
+
+}.
+var ActionSpecification is Specification cnew: {
+  on: 'toString' do: { ^'<ActionSpec: %L>' % [my comments fmap: \:x '"%s"' % [x]]. }.
+  on: 'each:' do: {:blk
+    my comments each: blk.
+  }.
+}.
+var Request is Object cnew: {
+  on: 'applyAll:' do: {:args
+    ^RequestSpecification cnew: {
+      fields => (type compileStructure: args).
+    }.
+  }.
+}.
+var Response is Object cnew: {
+  on: 'applyAll:' do: {:args
+    ^ResponseSpecification cnew: {
+      fields => (type compileStructure: args).
+    }.
+  }.
+}.
+var Action is Object cnew: {
+  on: 'applyAll:' do: {:args
+    ^ActionSpecification cnew: {
+      comments => args.
+    }.
+  }.
+  on: 'process:' do: {:arg ^me applyAll: [arg]. }.
+}.
+################################### endpoint ###################################
+#################################### action ####################################
+var endpoints is Map new.
+var actions is Map new.
+
+var EndpointSpec is Object cnew: {
+  on: 'create:withRequest:andResponse:' do: {:name:request:response
+    ^cnew: {
+      request => request.
+      response => response.
+      name => name.
+    }.
+  }.
+  genAccessors: ['request', 'response'].
+  on: 'each:' do: {:blk
+    my request isNil ifFalse: {
+      blk applyTo: 'Request' and: my request.
+    }.
+    my response isNil ifFalse: {
+      blk applyTo: 'Response' and: my response.
+    }.
+  }.
+  on: 'toString' do: {
+    ^'<Endpoint "%s" req: %s, resp: %s>' % [my name, my request, my response].
+  }.
+}.
+
+var ActionSpec is Object cnew: {
+  on: 'create:withRequest:andResponse:andAction:' do: {:name:request:response:action
+    ^cnew: {
+      request => request.
+      response => response.
+      action => action.
+      name => name.
+    }.
+  }.
+  genAccessors: ['request', 'response', 'action'].
+  on: 'each:' do: {:blk
+    my request isNil ifFalse: {
+      blk applyTo: 'Request' and: my request.
+    }.
+    my response isNil ifFalse: {
+      blk applyTo: 'Response' and: my response.
+    }.
+    my action isNil ifFalse: {
+      blk applyTo: 'Action' and: my action.
+    }.
+  }.
+  on: 'toString' do: {
+    ^'<Action "%s" req: %s, resp: %s, act: %s>' % [my name, my request, my response, my action].
+  }.
+}.
+
+var endpoint is Object cnew: {
+  on: 'respondTo:' do: {:name
+    endpoints contains: name, ifTrue: {
+      outPen red writeln: 'an endpoint named \'${{name}}$\' has already been registered'.
+      ^Nil.
+    }.
+    ^Object cnew: {
+      name => name.
+      endpoints => endpoints.
+      on: 'applyAll:' do: {:args
+        var req is Nil.
+        var res is Nil.
+        args each_v: {:arg
+          arg isA: RequestSpecification, ifTrue: {
+            req is arg.
+            ^Nil.
+          }.
+          arg isA: ResponseSpecification, ifTrue: {
+            res is arg.
+            ^Nil.
+          }.
+          # arg isA: ActionSpecification, ifTrue: {
+          #
+          # }.
+          errPen red writeln: 'endpoint specification can only be a Request or a Response', resetColor.
+        }.
+        my endpoints put: (
+          EndpointSpec
+            create: my name
+            withRequest: req
+            andResponse: res)
+          at: my name.
+      }.
+    }.
+  }.
+}.
+var action is Object cnew: {
+  on: 'respondTo:' do: {:name
+    actions contains: name, ifTrue: {
+      errPen red writeln: 'an action named \'${{name}}$\' has already been registered'.
+      ^Nil.
+    }.
+    ^Object cnew: {
+      name => name.
+      actions => actions.
+      on: 'applyAll:' do: {:args
+        var req is Nil.
+        var res is Nil.
+        var act is Nil.
+        args each_v: {:arg
+          arg isA: RequestSpecification, ifTrue: {
+            req is arg.
+            ^Nil.
+          }.
+          arg isA: ResponseSpecification, ifTrue: {
+            res is arg.
+            ^Nil.
+          }.
+          arg isA: ActionSpecification, ifTrue: {
+            act is arg.
+            ^Nil.
+          }.
+          errPen red writeln: 'action specification can only be a Request, a Response or an Action', resetColor.
+        }.
+        act isNil ifTrue: {
+          errPen red writeln: 'action rule ${{my name}}$ contains no `Action` field', resetColor.
+        }.
+        my actions put: (
+          ActionSpec
+            create: my name
+            withRequest: req
+            andResponse: res
+            andAction: act
+        ) at: my name.
+      }.
+    }.
+  }.
+}.
+
+
+################################ generate api ##################################
+
+var api is Object cnew: {
+  on: 'prettyPrintSpec:' do: {:spec
+    var s is ''.
+    spec each: {:ty:spc
+      s +=: '$$ty [\n\t\t\t\t$$spc'.
+      s +=: '\n\t\t\t],\n\t\t\t'.
+    }.
+    ^s.
+  }.
+  on: 'toString' do: {
+    ^'Actions:\n' + actions + '\n' + ('-' * 80) + '\n' + 'Endpoints:\n' + endpoints + '\n'.
+  }.
+  on: 'describe' do: {
+    outPen writeln: 'These types are defined:'.
+    type allInstanceTypes each: {:k:v
+      outPen writeln: '\t$$k - $$v ${{type miniPrintStructure: v}}$'.
+    }.
+    outPen write: 'The API has ${{actions count}}$ Actions'.
+    outPen writeln: ', and ${{endpoints count}}$ Endpoints:'.
+    actions each: {:name:spec
+      outPen writeln: '\taction $$name ['.
+      outPen writeln: '\t\t${{prettyPrintSpec: spec}}$'.
+      outPen writeln: '\t]'.
+    }.
+    endpoints each: {:name:spec
+      outPen writeln: '\tendpoint $$name ['.
+      outPen writeln: '\t\t${{prettyPrintSpec: spec}}$'.
+      outPen writeln: '\t]'.
+    }.
+  }.
+  on: 'generate' do: {
+    # generate js...?
+    # express toplevel boilerplate
+    outPen writeln: 'var express = require("express");\nvar app = express();\n'.
+    endpoints each: {:k
+      outPen writeln: 'const process_${{k ~ 's/\\W/_/g'}}$ = require("./endpoints/${{k ~ 's/\\W/_/g'}}$.js");'.
+    }.
+    actions each: {:k
+      outPen writeln: 'const process_${{k ~ 's/\\W/_/g'}}$ = require("./actions/${{k ~ 's/\\W/_/g'}}$.js");'.
+    }.
+    outPen brk.
+    outPen writeln: 'function getOrFail(obj, prop) {\n\t' +
+                 'let oprop = obj[prop];\n\t' +
+                 'if (oprop !== null) return oprop;\n\t' +
+                 'throw new Error(`missing argument ${prop}`);\n}'.
+    # first, define the types
+    type allInstanceTypes each: {:k:v
+      v isA: Number, ifTrue: {
+        outPen writeln: 'let $$k = {'.
+        var struct is type getStructure: v.
+        struct each: {:k:v
+          outPen writeln: '\t\'${{k}}$\': ${{v _underlayingJSType or: v}}$,'.
+        }.
+        outPen writeln: '};'.
+      }.
+    }.
+    # then, define the fancy routes for endpoints
+    { File new: 'endpoints', mkdir. } catch: {}, run.
+    endpoints each: {:route:spec
+      var f is File new: 'endpoints/${{route ~ 's/\\W/_/g'}}$.js'.
+      f exists ifTrue: {
+        errPen magenta writeln: 'route handler for ${{route}}$ existed at ${{f realPath}}$, not touching it', resetColor.
+      } ifFalse: {
+        f write: 'module.exports = function process_${{route ~ 's/\\W/_/g'}}$(res_input, res_output) {\n\t// TODO: implement\n\treturn res_output;\n}'.
+      }.
+      outPen writeln: 'app.post("/${{route}}$", (res, req) => {'.
+      # get the fields
+      outPen writeln: '\tvar bodyStr = "";'.
+      outPen writeln: '\treq.on("data",function(chunk) { bodyStr += chunk.toString(); });'.
+      outPen writeln: '\treq.on("end", function() {'.
+      (spec request isNil either: True or: { ^spec request fields isNil. }) ifTrue: {
+        outPen writeln: '\t\tlet res_input = {};'.
+      } ifFalse: {
+        outPen writeln: '\t\ttry {'.
+        outPen writeln: '\t\t\tlet jsondec = JSON.parse(bodyStr);'.
+        outPen writeln: '\t\t\tlet res_input = {'.
+        spec request fields each: {:k:v
+          outPen writeln: '\t\t\t\t\'${{k}}$\': getOrFail(jsondec, \'${{k}}$\'),'.
+        }.
+        outPen writeln: '\t\t\t};\n'.
+      }.
+
+      # generate the output structure
+      outPen writeln: '\t\t\tlet res_output = {'.
+      (spec response isNil either: True or: { ^spec response fields isNil. }) ifTrue: {
+        outPen writeln: '\t\t\t};'.
+      } ifFalse: {
+        spec response fields each: {:k:v
+          outPen writeln: '\t\t\t\t\'${{k}}$\': ${{v _underlayingJSType or: v}}$,'.
+        }.
+        outPen writeln: '\t\t\t};\n'.
+      }.
+      outPen writeln: '\t\t\tres.send(JSON.stringify(process_${{route ~ 's/\\W/_/g'}}$(res_input, res_output)));\n'.
+      outPen writeln: '\t\t} catch(e) { res.send(JSON.stringify({error: e})); }'.
+      outPen writeln: '\t});\n});'.
+    }.
+    # then, define the routes and processors for actions
+    { File new: 'actions', mkdir. } catch: {}, run.
+    actions each: {:route:spec
+      var f is File new: 'actions/${{route ~ 's/\\W/_/g'}}$.js'.
+      f exists ifTrue: {
+        errPen magenta writeln: 'route handler for ${{route}}$ existed at ${{f realPath}}$, not touching it', resetColor.
+      } ifFalse: {
+        f write: 'module.exports = function process_${{route ~ 's/\\W/_/g'}}$(res_input, res_output) {\n\t// TODO: implement\n\treturn res_output;\n}'.
+      }.
+      spec action each: {:idx:action
+        outPen writeln: '/**\n * ${{action replace: '\n' with: '\n * '}}$\n */\n' +
+                      'function action_${{route ~ 's/\\W/_/g'}}$_${{idx}}$(res, req, res_output, res_input) ' +
+                      '{\n\tres_output = res_output; // TODO: Edit me' +
+                      '\n\treturn true;\n}\n'.
+      }.
+      outPen writeln: 'app.post("/${{route}}$", (res, req) => {'.
+      # get the fields
+      outPen writeln: '\tvar bodyStr = "";'.
+      outPen writeln: '\treq.on("data",function(chunk) { bodyStr += chunk.toString(); });'.
+      outPen writeln: '\treq.on("end", function() {'.
+      (spec request isNil either: True or: { ^spec request fields isNil. }) ifTrue: {
+        outPen writeln: '\t\tlet res_input = {};'.
+      } ifFalse: {
+        outPen writeln: '\t\ttry {'.
+        outPen writeln: '\t\t\tlet jsondec = JSON.parse(bodyStr);'.
+        outPen writeln: '\t\t\tlet res_input = {'.
+        spec request fields each: {:k:v
+          outPen writeln: '\t\t\t\t\'${{k}}$\': getOrFail(jsondec, \'${{k}}$\'),'.
+        }.
+        outPen writeln: '\t\t\t};\n'.
+      }.
+
+      # generate the output structure
+      outPen writeln: '\t\t\tlet res_output = {'.
+      (spec response isNil either: True or: { ^spec response fields isNil. }) ifTrue: {
+        outPen writeln: '\t\t\t};'.
+      } ifFalse: {
+        spec response fields each: {:k:v
+          outPen writeln: '\t\t\t\t\'${{k}}$\': ${{v _underlayingJSType or: v}}$,'.
+        }.
+        outPen writeln: '\t\t\t};\n'.
+      }.
+      var last_idx is 0.
+      spec action each: {:idx:action
+        outPen writeln: ('\t' * idx) + '\t\t\tif (action_${{route ~ 's/\\W/_/g'}}$_${{idx}}$(res, req, res_output, res_input))'.
+        last_idx is idx.
+      }.
+      outPen writeln: ('\t' * (last_idx + 1)) + '\t\t\tres.send(JSON.stringify(process_${{route ~ 's/\\W/_/g'}}$(res_input, res_output)));\n'.
+      outPen writeln: '\t\t} catch(e) { res.send(JSON.stringify({error: e})); }'.
+      outPen writeln: '\t});\n});'.
+    }.
+  }.
+}.
