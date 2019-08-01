@@ -14,14 +14,14 @@ function getOrFail(obj, prop) {
 	throw new Error(`missing argument ${prop}`);
 }
 let City = {
-	'countryCode': Number,
-	'city': String,
 	'cityCode': Number,
+	'city': String,
 	'country': String,
+	'countryCode': Number,
 };
 let Person = {
-	'city': City,
 	'lastName': String,
+	'city': City,
 	'firstName': String,
 };
 app.post("/countUsers", (res, req) => {
@@ -68,7 +68,7 @@ app.post("/getPeopleFromCity", (res, req) => {
 			};
 
 			let res_output = {
-				'person': [Person],
+				'person': JSON.parse(JSON.stringify([Person])),
 			};
 
 			if (action_getPeopleFromCity_0(res, req, res_output, res_input))
