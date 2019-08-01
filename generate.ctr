@@ -98,11 +98,13 @@ var Type is Object cnew: {
       ftype => self.
       fname => name.
       underlayingJSType => Nil.
+      default => Nil.
       genAccessors: ['fname', 'ftype'].
       on: 'toString' do: {
         ^'<%s %s>' % [my ftype, my fname].
       }.
       on: 'default:' do: {:def default => def. }.
+      on: 'default' do: { ^my default or: my ftype _underlayingJSType, or: my ftype. }.
       on: 'type' do: { ^'NameTypePair'. }.
       on: 'applyAll:' do: {:x default: x head. }.
       on: '=' do: {:other
@@ -385,8 +387,11 @@ var api is Object cnew: {
     endpoints each: {:k
       outPen writeln: 'const process_${{k ~ 's/\\W/_/g'}}$ = require("./endpoints/${{k ~ 's/\\W/_/g'}}$.js");'.
     }.
-    actions each: {:k
+    actions each: {:k:spec
       outPen writeln: 'const process_${{k ~ 's/\\W/_/g'}}$ = require("./actions/${{k ~ 's/\\W/_/g'}}$.js");'.
+      spec action each: {:i
+        outPen writeln: 'const action_${{k ~ 's/\\W/_/g'}}$_${{i}}$ = require("./actions/${{k ~ 's/\\W/_/g'}}$-action${{i}}$.js");'.
+      }.
     }.
     outPen brk.
     outPen writeln: 'function getOrFail(obj, prop) {\n\t' +
@@ -407,11 +412,34 @@ var api is Object cnew: {
     # then, define the fancy routes for endpoints
     { File new: 'endpoints', mkdir. } catch: {}, run.
     endpoints each: {:route:spec
+      var typedoc_in is '/**\n * res_input\n'.
+      var typedoc_out is '/**\n * res_output\n'.
+
+      (spec request isNil either: True or: { ^spec request fields isNil. }) ifTrue: {
+        typedoc_in +=: ' */\n'.
+      } ifFalse: {
+        spec request fields each: {:k:v
+          typedoc_in +=: ' * @param ${{k}}$: ${{v _underlayingJSType or: v}}$\n'.
+        }.
+        typedoc_in +=: ' */\n'.
+      }.
+
+      (spec response isNil either: True or: { ^spec response fields isNil. }) ifTrue: {
+        typedoc_out +=: ' */\n'.
+      } ifFalse: {
+        spec response fields each: {:k:v
+          typedoc_out +=: ' * @param ${{k}}$: ${{v _underlayingJSType or: v}}$\n'.
+        }.
+        typedoc_out +=: ' */\n'.
+      }.
+
       var f is File new: 'endpoints/${{route ~ 's/\\W/_/g'}}$.js'.
       f exists ifTrue: {
-        errPen magenta writeln: 'route handler for ${{route}}$ existed at ${{f realPath}}$, not touching it', resetColor.
+        errPen magenta writeln: 'route handler for ${{route}}$ existed at ${{f path}}$, not touching it', resetColor.
       } ifFalse: {
-        f write: 'module.exports = function process_${{route ~ 's/\\W/_/g'}}$(res_input, res_output) {\n\t// TODO: implement\n\treturn res_output;\n}'.
+        f write: typedoc_out + '\n' + typedoc_in +
+                 '\n\nmodule.exports = function process_${{route ~ 's/\\W/_/g'}}$(res_input, res_output)' +
+                 ' {\n\t// TODO: implement\n\treturn res_output;\n}'.
       }.
       outPen writeln: 'app.post("/${{route}}$", (res, req) => {'.
       # get the fields
@@ -447,17 +475,45 @@ var api is Object cnew: {
     # then, define the routes and processors for actions
     { File new: 'actions', mkdir. } catch: {}, run.
     actions each: {:route:spec
+      var typedoc_in is '/**\n * res_input\n'.
+      var typedoc_out is '/**\n * res_output\n'.
+
+      (spec request isNil either: True or: { ^spec request fields isNil. }) ifTrue: {
+        typedoc_in +=: ' */\n'.
+      } ifFalse: {
+        spec request fields each: {:k:v
+          typedoc_in +=: ' * @param ${{k}}$: ${{v _underlayingJSType or: v}}$\n'.
+        }.
+        typedoc_in +=: ' */\n'.
+      }.
+
+      (spec response isNil either: True or: { ^spec response fields isNil. }) ifTrue: {
+        typedoc_out +=: ' */\n'.
+      } ifFalse: {
+        spec response fields each: {:k:v
+          typedoc_out +=: ' * @param ${{k}}$: ${{v _underlayingJSType or: v}}$\n'.
+        }.
+        typedoc_out +=: ' */\n'.
+      }.
+
       var f is File new: 'actions/${{route ~ 's/\\W/_/g'}}$.js'.
       f exists ifTrue: {
-        errPen magenta writeln: 'route handler for ${{route}}$ existed at ${{f realPath}}$, not touching it', resetColor.
+        errPen magenta writeln: 'route handler for ${{route}}$ existed at ${{f path}}$, not touching it', resetColor.
       } ifFalse: {
-        f write: 'module.exports = function process_${{route ~ 's/\\W/_/g'}}$(res_input, res_output) {\n\t// TODO: implement\n\treturn res_output;\n}'.
+        f write: typedoc_out + '\n' + typedoc_in +
+                 'module.exports = function process_${{route ~ 's/\\W/_/g'}}$(res_input, res_output)' +
+                 ' {\n\t// TODO: implement\n\treturn res_output;\n}'.
       }.
       spec action each: {:idx:action
-        outPen writeln: '/**\n * ${{action replace: '\n' with: '\n * '}}$\n */\n' +
-                      'function action_${{route ~ 's/\\W/_/g'}}$_${{idx}}$(res, req, res_output, res_input) ' +
-                      '{\n\tres_output = res_output; // TODO: Edit me' +
-                      '\n\treturn true;\n}\n'.
+        var f is File new: 'actions/${{route ~ 's/\\W/_/g'}}$-action${{idx}}$.js'.
+        f exists ifTrue: {
+          errPen magenta writeln: 'action #$$idx for route ${{route}}$ existed at ${{f path}}$, not touching it', resetColor.
+        } ifFalse: {
+          f write: '/**\n * ${{action replace: '\n' with: '\n * '}}$\n */\n' + typedoc_out + '\n' + typedoc_in +
+                        'function action_${{route ~ 's/\\W/_/g'}}$_${{idx}}$(res, req, res_output, res_input) ' +
+                        '{\n\tres_output = res_output; // TODO: Edit me' +
+                        '\n\treturn true;\n}\n'.
+        }.
       }.
       outPen writeln: 'app.post("/${{route}}$", (res, req) => {'.
       # get the fields
