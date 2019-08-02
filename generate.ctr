@@ -447,7 +447,8 @@ var api is Object cnew: {
       outPen writeln: '\treq.on("data",function(chunk) { bodyStr += chunk.toString(); });'.
       outPen writeln: '\treq.on("end", function() {'.
       (spec request isNil either: True or: { ^spec request fields isNil. }) ifTrue: {
-        outPen writeln: '\t\tlet res_input = {};'.
+        outPen writeln: '\t\ttry {'.
+        outPen writeln: '\t\t\tlet res_input = {};'.
       } ifFalse: {
         outPen writeln: '\t\ttry {'.
         outPen writeln: '\t\t\tlet jsondec = JSON.parse(bodyStr);'.

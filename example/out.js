@@ -13,22 +13,23 @@ function getOrFail(obj, prop) {
 	if (oprop !== null) return oprop;
 	throw new Error(`missing argument ${prop}`);
 }
-let City = {
-	'cityCode': Number,
-	'city': String,
-	'country': String,
-	'countryCode': Number,
-};
 let Person = {
-	'lastName': String,
 	'city': City,
 	'firstName': String,
+	'lastName': String,
+};
+let City = {
+	'country': String,
+	'city': String,
+	'countryCode': Number,
+	'cityCode': Number,
 };
 app.post("/countUsers", (res, req) => {
 	var bodyStr = "";
 	req.on("data",function(chunk) { bodyStr += chunk.toString(); });
 	req.on("end", function() {
-		let res_input = {};
+		try {
+			let res_input = {};
 			let res_output = {
 				'count': Number,
 			};
