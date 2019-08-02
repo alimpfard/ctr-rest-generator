@@ -1,4 +1,6 @@
-const {ArrayType, City, Person} = require("../types.js");
+const {ArrayType} = require("../types.js");
+
+const {City, Person} = require("../models.js");
 
 /**
  * res_output
@@ -9,8 +11,10 @@ const {ArrayType, City, Person} = require("../types.js");
  * res_input
  */
 
+constructCount = x => (Number).call(null, x);
 
-module.exports = function process_countUsers(res_input, res_output) {
+
+module.exports = async function process_countUsers(res_input, res_output) {
 	// TODO: implement
 	return res_output;
 }

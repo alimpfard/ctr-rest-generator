@@ -5,7 +5,7 @@ var outPen is pPen for: (File new: 'out.js', open: 'w+').
 
 var type is Object cnew: {
   on: 'new' do: {}.
-  on: 'cnew:' do: {}.
+  # on: 'cnew:' do: {}.
 
   allInstanceTypes => HashMap new.
   structures => Map new.
@@ -76,8 +76,12 @@ var type is Object cnew: {
   }.
   on: 'miniPrintStructureEx:' do: {:compiled
     var s is '{'.
-    compiled each: {:k:v
-      s +=: '${{k}}$:${{v}}$, '.
+    compiled isA: Type, ifTrue: {
+      s +=: (compiled _underlayingJSType or: compiled) + ', '.
+    } ifFalse: {
+      compiled each: {:k:v
+        s +=: '${{k}}$:${{v}}$, '.
+      }.
     }.
     ^s from: 0 length: s length - 2, + '}'.
   }.
@@ -87,6 +91,7 @@ var Type is Object cnew: {
   on: 'cnew:named:' do: {:blk:name
     ^me cnew: blk, name: name.
   }.
+  genAccessors: ['structureId'].
   on: 'name:' do: {:name my name is name. }.
   on: 'toString' do: { ^my name. }.
   on: 'applyAll:' do: {
@@ -99,7 +104,9 @@ var Type is Object cnew: {
       fname => name.
       underlayingJSType => Nil.
       default => Nil.
-      genAccessors: ['fname', 'ftype'].
+      unique? => False.
+      genAccessors: ['fname', 'ftype', 'unique?'].
+      on: 'unique' do: { my unique? is True. }.
       on: 'toString' do: {
         ^'<%s %s>' % [my ftype, my fname].
       }.
@@ -199,11 +206,24 @@ var Request is Object cnew: {
       fields => (type compileStructure: args).
     }.
   }.
+  on: 'respondTo:' do: {:name
+    var ty is Reflect getObject: name.
+    ^RequestSpecification cnew: {
+      fields => ty. #type getStructure: ty structureId, or: (model getStructure: ty structureId).
+    }.
+  }.
 }.
 var Response is Object cnew: {
   on: 'applyAll:' do: {:args
     ^ResponseSpecification cnew: {
       fields => (type compileStructure: args).
+    }.
+  }.
+
+  on: 'respondTo:' do: {:name
+    var ty is Reflect getObject: name.
+    ^ResponseSpecification cnew: {
+      fields => ty. #type getStructure: ty structureId, or: (model getStructure: ty structureId).
     }.
   }.
 }.
@@ -344,11 +364,62 @@ var action is Object cnew: {
   }.
 }.
 
+#################################### model #####################################
+var models is Map new.
+
+var ModelSpec is Object cnew: {
+  # TODO
+}.
+
+var model is type cnew: {
+  allInstanceTypes => HashMap new.
+  structures => Map new.
+  alternative => False.
+}.
+
+var reference is Type cnew: {
+  on: 'applyAll:' do: {:ex
+    ^ReferenceType getOrCreate: ex head.
+  }.
+} named: 'reference'.
+
+var ReferenceType is Type cnew: {
+  typemap => Map new.
+  on: 'getOrCreate:' do: {:inner
+    var instance is my typemap at: inner.
+    instance isNil ifTrue: {
+      instance is me create: inner.
+      my typemap put: instance at: inner.
+      ^instance.
+    } ifFalse: {
+      ^instance.
+    }.
+  }.
+  on: 'create:' do: {:inner
+    ^me cnew: {
+      etype => inner.
+    }.
+  }.
+  on: '_underlayingJSType' do: { ^'Number'. }.
+  on: 'toString' do: {
+    ^'reference[%s]' % [my etype].
+  }.
+}.
+
+model register: 'int' as: int.
+model register: 'string' as: string.
+model register: 'double' as: double.
+model register: 'boolean' as: boolean.
+model register: 'reference' as: reference.
 
 ################################ generate api ##################################
 
 var api is Object cnew: {
   loglevel => \none. # debug, info, warn, none
+  endpointType => 'get'.
+  on: 'postEndpoints' do: { endpointType => 'post'. }.
+  on: 'getEndpoints' do: { endpointType => 'get'. }.
+  on: 'endpointType' do: { ^my endpointType. }.
   on: 'log:' do: {:level
     loglevel => level.
   }.
@@ -369,6 +440,9 @@ var api is Object cnew: {
     type allInstanceTypes each: {:k:v
       outPen writeln: '\t$$k - $$v ${{type miniPrintStructure: v}}$'.
     }.
+    model allInstanceTypes each: {:k:v
+      outPen writeln: '\t$$k - $$v ${{model miniPrintStructure: v}}$'.
+    }.
     outPen write: 'The API has ${{actions count}}$ Actions'.
     outPen writeln: ', and ${{endpoints count}}$ Endpoints:'.
     actions each: {:name:spec
@@ -384,8 +458,9 @@ var api is Object cnew: {
   }.
   on: 'generate' do: {
     # generate js...?
-    # express toplevel boilerplate
+    # express + toplevel boilerplate
     outPen writeln: 'var express = require("express");\nvar app = express();\n'.
+    outPen writeln: 'db = null; const config = require("./config.js");\nconst MongoClient = require("mongodb").MongoClient;\n'.
     endpoints each: {:k
       outPen writeln: 'const process_${{k ~ 's/\\W/_/g'}}$ = require("./endpoints/${{k ~ 's/\\W/_/g'}}$.js");'.
     }.
@@ -429,7 +504,40 @@ var api is Object cnew: {
     typePen writeln: '\t\t\treturn Array.prototype.slice.call(value).map(x => inner.call(null, x));'.
     typePen writeln: '\t\t}\n\t};\n};'.
     typePen writeln: 'module.exports["ArrayType"] = ArrayType;'.
+    # then, define the model types
+    var modelnames is Array new.
+    var f is File new: 'models.js'.
+    f exists ifTrue: {
+      errPen magenta write: 'models file exists at $$f', red write: ' overwriting it.', resetColor brk.
+    }.
+    f open: 'w+'.
+    var modelPen is pPen for: f.
+    modelPen writeln: 'module.exports = {};'.
+    var typenames is Array < 'ArrayType'.
+    model allInstanceTypes each: {:k:v
+      v isA: Number, ifTrue: {
+        modelnames push: k.
+        modelPen writeln: 'let $$k = {'.
+        var struct is model getStructure: v.
+        struct each: {:k:v
+          modelPen writeln: '\t\'${{k}}$\': arg => ${{v _underlayingJSType or: v}}$.call(null, arg),'.
+        }.
+        modelPen writeln: '\tcall(_, value) {'.
+        modelPen writeln: '\t\tlet obj = {};'.
+        modelPen writeln: '\t\tfor (property in ${{k}}$)'.
+        modelPen writeln: '\t\t\tif (property !== "call" && property !== "db" && ${{k}}$.hasOwnProperty(property))'.
+        modelPen writeln: '\t\t\t\tobj[property] = ${{k}}$[property](value[property]);'.
+        modelPen writeln: '\t\treturn obj;\n\t},'.
+        # database access methods
+        modelPen writeln: '\tdb() { return db.collection("${{k}}$") },'.
+        modelPen writeln: '};'.
+        modelPen writeln: 'module.exports["${{k}}$"] = $$k'.
+        modelPen brk.
+      }.
+    }.
+    # then import all
     outPen writeln: 'const {%:L} = require("./types.js");' % [', ', typenames].
+    outPen writeln: 'const {%:L} = require("./models.js");' % [', ', modelnames].
     outPen brk.
     outPen writeln: 'function getOrFail(obj, prop) {\n\t' +
                  'let oprop = obj[prop];\n\t' +
@@ -440,12 +548,18 @@ var api is Object cnew: {
     endpoints each: {:route:spec
       var typedoc_in is '/**\n * res_input\n'.
       var typedoc_out is '/**\n * res_output\n'.
+      var out_constructors is ''.
 
       (spec request isNil either: True or: { ^spec request fields isNil. }) ifTrue: {
         typedoc_in +=: ' */\n'.
       } ifFalse: {
-        spec request fields each: {:k:v
-          typedoc_in +=: ' * @param ${{k}}$: ${{v _underlayingJSType or: v}}$\n'.
+        var fields is spec request fields.
+        fields isA: Type, ifTrue: {
+          typedoc_in +=: ' * @param ${{k}}$: ${{fields _underlayingJSType or: fields}}$\n'.
+        } ifFalse: {
+          spec request fields each: {:k:v
+            typedoc_in +=: ' * @param ${{k}}$: ${{v _underlayingJSType or: v}}$\n'.
+          }.
         }.
         typedoc_in +=: ' */\n'.
       }.
@@ -453,8 +567,16 @@ var api is Object cnew: {
       (spec response isNil either: True or: { ^spec response fields isNil. }) ifTrue: {
         typedoc_out +=: ' */\n'.
       } ifFalse: {
-        spec response fields each: {:k:v
-          typedoc_out +=: ' * @param ${{k}}$: ${{v _underlayingJSType or: v}}$\n'.
+        var fields is spec response fields.
+
+        fields isA: Type, ifTrue: {
+            typedoc_out +=: ' * = ${{fields _underlayingJSType or: fields}}$\n'.
+            out_constructors +=: 'constructReturn = x => (${{fields _underlayingJSType or: fields}}$).call(null, x);\n'.
+        } ifFalse: {
+          fields each: {:k:v
+            typedoc_out +=: ' * @param ${{k}}$: ${{v _underlayingJSType or: v}}$\n'.
+            out_constructors +=: 'construct${{k upper1st}}$ = x => (${{v _underlayingJSType or: v}}$).call(null, x);\n'.
+          }.
         }.
         typedoc_out +=: ' */\n'.
       }.
@@ -465,40 +587,52 @@ var api is Object cnew: {
       } ifFalse: {
         f open: 'w+'.
         f write: 'const {%:L} = require("../types.js");\n\n' % [', ', typenames].
-        f write: typedoc_out + '\n' + typedoc_in +
-                 '\n\nmodule.exports = function process_${{route ~ 's/\\W/_/g'}}$(res_input, res_output)' +
+        f write: 'const {%:L} = require("../models.js");\n\n' % [', ', modelnames].
+        f write: typedoc_out + '\n' + typedoc_in + '\n' + out_constructors +
+                 '\n\nmodule.exports = async function process_${{route ~ 's/\\W/_/g'}}$(res_input, res_output)' +
                  ' {\n\t// TODO: implement\n\treturn res_output;\n}'.
         f close.
       }.
-      outPen writeln: 'app.get("/${{route}}$", (req, res) => {'.
+      outPen writeln: 'app.${{api endpointType}}$("/${{route}}$", async (req, res) => {'.
       api log = \debug ifTrue: {
         outPen writeln: '\tconsole.log("[DEBUG] activity on route ${{route}}$");'.
       }.
       # get the fields
       (spec request isNil either: True or: { ^spec request fields isNil. }) ifTrue: {
-        outPen writeln: '\t\ttry {'.
+        # outPen writeln: '\t\ttry {'.
         outPen writeln: '\t\t\tlet res_input = {};'.
       } ifFalse: {
-        outPen writeln: '\t\ttry {'.
-        outPen writeln: '\t\t\tlet res_input = {'.
-        spec request fields each: {:k:v
-          outPen writeln: '\t\t\t\t\'${{k}}$\': getOrFail(req.params, \'${{k}}$\'),'.
+        # outPen writeln: '\t\ttry {'.
+        var fields is spec request fields.
+        fields isA: Type, ifTrue: {
+          outPen writeln: '\t\t\tlet res_input = ${{fields _underlayingJSType or: fields}}$;'.
+        } ifFalse: {
+          outPen writeln: '\t\t\tlet res_input = {'.
+          fields each: {:k:v
+            outPen writeln: '\t\t\t\t\'${{k}}$\': getOrFail(req.params, \'${{k}}$\'),'.
+          }.
+          outPen writeln: '\t\t\t};\n'.
         }.
-        outPen writeln: '\t\t\t};\n'.
       }.
 
       # generate the output structure
-      outPen writeln: '\t\t\tlet res_output = {'.
       (spec response isNil either: True or: { ^spec response fields isNil. }) ifTrue: {
+        outPen writeln: '\t\t\tlet res_output = {'.
         outPen writeln: '\t\t\t};'.
       } ifFalse: {
-        spec response fields each: {:k:v
-          outPen writeln: '\t\t\t\t\'${{k}}$\': ${{v _underlayingJSType or: v}}$,'.
+        var fields is spec response fields.
+        fields isA: Type, ifTrue: {
+          outPen writeln: '\t\t\tlet res_output = ${{fields _underlayingJSType or: fields}}$;'.
+        } ifFalse: {
+          outPen writeln: '\t\t\tlet res_output = {'.
+          fields each: {:k:v
+            outPen writeln: '\t\t\t\t\'${{k}}$\': ${{v _underlayingJSType or: v}}$,'.
+          }.
+          outPen writeln: '\t\t\t};\n'.
         }.
-        outPen writeln: '\t\t\t};\n'.
       }.
-      outPen writeln: '\t\t\tres.send(JSON.stringify(process_${{route ~ 's/\\W/_/g'}}$(res_input, res_output)));\n'.
-      outPen writeln: '\t\t} catch(e) { res.send(JSON.stringify({error: e})); }'.
+      outPen writeln: '\t\t\tres.send(await process_${{route ~ 's/\\W/_/g'}}$(res_input, res_output));\n'.
+      # outPen writeln: '\t\t} catch(e) { res.status(500).send({error: e.toString()}); }'.
       outPen writeln: '\n});'.
     }.
     # then, define the routes and processors for actions
@@ -506,12 +640,18 @@ var api is Object cnew: {
     actions each: {:route:spec
       var typedoc_in is '/**\n * res_input\n'.
       var typedoc_out is '/**\n * res_output\n'.
+      var out_constructors is ''.
 
       (spec request isNil either: True or: { ^spec request fields isNil. }) ifTrue: {
         typedoc_in +=: ' */\n'.
       } ifFalse: {
-        spec request fields each: {:k:v
-          typedoc_in +=: ' * @param ${{k}}$: ${{v _underlayingJSType or: v}}$\n'.
+        var fields is spec request fields.
+        fields isA: Type, ifTrue: {
+          typedoc_in +=: ' * = ${{fields _underlayingJSType or: fields}}$\n'.
+        } ifFalse: {
+          spec request fields each: {:k:v
+            typedoc_in +=: ' * @param ${{k}}$: ${{v _underlayingJSType or: v}}$\n'.
+          }.
         }.
         typedoc_in +=: ' */\n'.
       }.
@@ -519,8 +659,14 @@ var api is Object cnew: {
       (spec response isNil either: True or: { ^spec response fields isNil. }) ifTrue: {
         typedoc_out +=: ' */\n'.
       } ifFalse: {
-        spec response fields each: {:k:v
-          typedoc_out +=: ' * @param ${{k}}$: ${{v _underlayingJSType or: v}}$\n'.
+        var fields is spec response fields.
+        fields isA: Type, ifTrue: {
+          typedoc_out +=: ' * = ${{fields _underlayingJSType or: fields}}$\n'.
+        } ifFalse: {
+          spec response fields each: {:k:v
+            typedoc_out +=: ' * @param ${{k}}$: ${{v _underlayingJSType or: v}}$\n'.
+            out_constructors +=: 'construct${{k upper1st}}$ = x => (${{v _underlayingJSType or: v}}$).call(null, x);\n'.
+          }.
         }.
         typedoc_out +=: ' */\n'.
       }.
@@ -531,8 +677,9 @@ var api is Object cnew: {
       } ifFalse: {
         f open: 'w+'.
         f write: 'const {%:L} = require("../types.js");\n\n' % [', ', typenames].
+        f write: 'const {%:L} = require("../models.js");\n\n' % [', ', modelnames].
         f write: typedoc_out + '\n' + typedoc_in +
-                 'module.exports = function process_${{route ~ 's/\\W/_/g'}}$(res_input, res_output)' +
+                 'module.exports = async function process_${{route ~ 's/\\W/_/g'}}$(res_input, res_output)' +
                  ' {\n\t// TODO: implement\n\treturn res_output;\n}'.
         f close.
       }.
@@ -541,53 +688,77 @@ var api is Object cnew: {
         f exists ifTrue: {
           errPen magenta writeln: 'action #$$idx for route ${{route}}$ existed at ${{f path}}$, not touching it', resetColor.
         } ifFalse: {
-          f write: '/**\n * ${{action replace: '\n' with: '\n * '}}$\n */\n' + typedoc_out + '\n' + typedoc_in +
-                        'function action_${{route ~ 's/\\W/_/g'}}$_${{idx}}$(res, req, res_output, res_input) ' +
+          f open: 'w+'.
+          f write: 'const {%:L} = require("../types.js");\n\n' % [', ', typenames].
+          f write: 'const {%:L} = require("../models.js");\n\n' % [', ', modelnames].
+          f write: '/**\n * ${{action replace: '\n' with: '\n * '}}$\n */\n' + typedoc_out + '\n' + typedoc_in + '\n' + out_constructors +
+                        'async function action_${{route ~ 's/\\W/_/g'}}$_${{idx}}$(res, req, res_output, res_input) ' +
                         '{\n\tres_output = res_output; // TODO: Edit me' +
                         '\n\treturn true;\n}\n'.
+          f close.
         }.
       }.
-      outPen writeln: 'app.post("/${{route}}$", (req, res) => {'.
+      outPen writeln: 'app.post("/${{route}}$", async (req, res) => {'.
       api log = \debug ifTrue: {
         outPen writeln: '\tconsole.log("[DEBUG] activity on ${{route}}$");'.
       }.
       # get the fields
       outPen writeln: '\tvar bodyStr = "";'.
-      outPen writeln: '\treq.on("data",function(chunk) { '.
+      outPen writeln: '\treq.on("data", function(chunk) { '.
       outPen writeln: '\t\tbodyStr += chunk.toString();'.
       outPen writeln: '\t});'.
-      outPen writeln: '\treq.on("end", function() {'.
+      outPen writeln: '\treq.on("end", async function() {'.
       (spec request isNil either: True or: { ^spec request fields isNil. }) ifTrue: {
         outPen writeln: '\t\tlet res_input = {};'.
       } ifFalse: {
         outPen writeln: '\t\ttry {'.
         outPen writeln: '\t\t\tlet jsondec = JSON.parse(bodyStr);'.
-        outPen writeln: '\t\t\tlet res_input = {'.
-        spec request fields each: {:k:v
-          outPen writeln: '\t\t\t\t\'${{k}}$\': getOrFail(jsondec, \'${{k}}$\'),'.
+        var fields is spec request fields.
+        fields isA: Type, ifTrue: {
+          outPen writeln: '\t\t\tlet res_input = ${{fields _underlayingJSType or: fields}}$.call(_, jsondec);'.
+        } ifFalse: {
+          outPen writeln: '\t\t\tlet res_input = {'.
+          spec request fields each: {:k:v
+            outPen writeln: '\t\t\t\t\'${{k}}$\': getOrFail(jsondec, \'${{k}}$\'),'.
+          }.
+          outPen writeln: '\t\t\t};\n'.
         }.
-        outPen writeln: '\t\t\t};\n'.
       }.
 
       # generate the output structure
-      outPen writeln: '\t\t\tlet res_output = {'.
       (spec response isNil either: True or: { ^spec response fields isNil. }) ifTrue: {
-        outPen writeln: '\t\t\t};'.
+        outPen writeln: '\t\t\tlet res_output = {};'.
       } ifFalse: {
-        spec response fields each: {:k:v
-          outPen writeln: '\t\t\t\t\'${{k}}$\': ${{v _underlayingJSType or: v}}$,'.
+        var fields is spec response fields.
+        fields isA: Type, ifTrue: {
+          outPen writeln: '\t\t\tlet res_output = ${{fields _underlayingJSType or: v}}$;'.
+        } ifFalse: {
+          outPen writeln: '\t\t\tlet res_output = {'.
+          spec response fields each: {:k:v
+            outPen writeln: '\t\t\t\t\'${{k}}$\': ${{v _underlayingJSType or: v}}$,'.
+          }.
+          outPen writeln: '\t\t\t};\n'.
         }.
-        outPen writeln: '\t\t\t};\n'.
       }.
       var last_idx is 0.
       spec action each: {:idx:action
-        outPen writeln: ('\t' * idx) + '\t\t\tif (action_${{route ~ 's/\\W/_/g'}}$_${{idx}}$(res, req, res_output, res_input))'.
+        outPen writeln: ('\t' * idx) + '\t\t\tif (await action_${{route ~ 's/\\W/_/g'}}$_${{idx}}$(res, req, res_output, res_input))'.
         last_idx is idx.
       }.
-      outPen writeln: ('\t' * (last_idx + 1)) + '\t\t\tres.send(JSON.stringify(process_${{route ~ 's/\\W/_/g'}}$(res_input, res_output)));\n'.
-      outPen writeln: '\t\t} catch(e) { res.send(JSON.stringify({error: e})); }'.
+      outPen writeln: ('\t' * (last_idx + 1)) + '\t\t\tres.send(await process_${{route ~ 's/\\W/_/g'}}$(res_input, res_output));\n'.
+      outPen writeln: '\t\t} catch(e) { res.status(500).send({error: e.toString()}); }'.
       outPen writeln: '\t});\n});'.
     }.
-    outPen writeln: 'app.listen(8080, () => console.log("App listening on port 8080!"));'.
+    outPen writeln: 'MongoClient.connect(config.mongo_addr, {useNewUrlParser: true}, (err, client) => {'.
+    outPen writeln: '\tif (err) return console.log(err);'.
+    outPen writeln: '\tdb = client.db(config.database);'.
+    outPen writeln: '\tapp.listen(config.port, () => console.log("App listening on port " + config.port));'.
+    outPen writeln: '});'.
+
+    # create a config file if it doesn't exist
+    var cfg is File new: 'config.js'.
+    cfg exists ifFalse: {
+      cfg write: 'module.exports = {\n\tport: 8080,\n\tmongo_addr: "mongodb://127.0.0.1",\n\tdatabase: "fancy_db_name"\n};'.
+    }.
   }.
 }.

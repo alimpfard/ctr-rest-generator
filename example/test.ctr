@@ -1,22 +1,20 @@
 import generate: \*.
 
-type City [
-    string country,
-    string city,
-    int countryCode,
-    int cityCode
+model City [
+  string country,
+  string city,
+  int countryCode,
+  int cityCode
 ].
 
-type Person [
-    string firstName,
-    string lastName,
-    City city
+model Person [
+  string firstName,
+  string lastName,
+  reference[City] city
 ].
 
 action getPeopleFromCity [
-    Request [
-        City city
-    ],
+    Request City,
     Response [
         Person[] person
     ],
@@ -37,6 +35,4 @@ endpoint countUsers [
     ]
 ].
 
-
 api generate.
-            
