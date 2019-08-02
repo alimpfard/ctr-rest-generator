@@ -1,8 +1,22 @@
 module.exports = {};
+let Person = {
+	'lastName': arg => String.call(null, arg),
+	'city': arg => City.call(null, arg),
+	'firstName': arg => String.call(null, arg),
+	call(_, value) {
+		let obj = {};
+		for (property in Person)
+			if (property !== "call" && Person.hasOwnProperty(property))
+				obj[property] = Person[property](value[property]);
+		return obj;
+	}
+};
+module.exports["Person"] = Person
+
 let City = {
-	'cityCode': arg => Number.call(null, arg),
 	'country': arg => String.call(null, arg),
 	'countryCode': arg => Number.call(null, arg),
+	'cityCode': arg => Number.call(null, arg),
 	'city': arg => String.call(null, arg),
 	call(_, value) {
 		let obj = {};
@@ -13,20 +27,6 @@ let City = {
 	}
 };
 module.exports["City"] = City
-
-let Person = {
-	'city': arg => City.call(null, arg),
-	'firstName': arg => String.call(null, arg),
-	'lastName': arg => String.call(null, arg),
-	call(_, value) {
-		let obj = {};
-		for (property in Person)
-			if (property !== "call" && Person.hasOwnProperty(property))
-				obj[property] = Person[property](value[property]);
-		return obj;
-	}
-};
-module.exports["Person"] = Person
 
 function ArrayType(inner) {
 	return {

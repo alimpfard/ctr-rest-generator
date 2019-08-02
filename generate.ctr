@@ -575,7 +575,7 @@ var api is Object cnew: {
         outPen writeln: '\t\t\t};'.
       } ifFalse: {
         spec response fields each: {:k:v
-          outPen writeln: '\t\t\t\t\'${{k}}$\': JSON.parse(JSON.stringify(${{v _underlayingJSType or: v}}$)),'.
+          outPen writeln: '\t\t\t\t\'${{k}}$\': ${{v _underlayingJSType or: v}}$,'.
         }.
         outPen writeln: '\t\t\t};\n'.
       }.

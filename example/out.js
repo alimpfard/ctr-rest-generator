@@ -8,7 +8,7 @@ const action_deletePerson_1 = require("./actions/deletePerson-action1.js");
 const process_getPeopleFromCity = require("./endpoints/getPeopleFromCity.js");
 const action_getPeopleFromCity_0 = require("./actions/getPeopleFromCity-action0.js");
 
-const {ArrayType, City, Person} = require("./types.js");
+const {ArrayType, Person, City} = require("./types.js");
 
 function getOrFail(obj, prop) {
 	let oprop = obj[prop];
@@ -61,7 +61,7 @@ app.post("/getPeopleFromCity", (req, res) => {
 			};
 
 			let res_output = {
-				'person': JSON.parse(JSON.stringify(ArrayType(Person))),
+				'person': ArrayType(Person),
 			};
 
 			if (action_getPeopleFromCity_0(res, req, res_output, res_input))
