@@ -1,3 +1,5 @@
+const {ArrayType, City, Person} = require("../types.js");
+
 /**
  * res_output
  * @param count: Number

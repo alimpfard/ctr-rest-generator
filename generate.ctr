@@ -135,7 +135,7 @@ var ArrayType is Type cnew: {
       etype => inner.
     }.
   }.
-  on: '_underlayingJSType' do: { ^'[' + (my etype _underlayingJSType or: my etype) + ']'. }.
+  on: '_underlayingJSType' do: { ^'ArrayType(' + (my etype _underlayingJSType or: my etype) + ')'. }.
   on: 'toString' do: {
     ^'%s[]' % [my etype].
   }.
@@ -289,9 +289,6 @@ var endpoint is Object cnew: {
             res is arg.
             ^Nil.
           }.
-          # arg isA: ActionSpecification, ifTrue: {
-          #
-          # }.
           errPen red writeln: 'endpoint specification can only be a Request or a Response', resetColor.
         }.
         my endpoints put: (
@@ -351,6 +348,11 @@ var action is Object cnew: {
 ################################ generate api ##################################
 
 var api is Object cnew: {
+  loglevel => \none. # debug, info, warn, none
+  on: 'log:' do: {:level
+    loglevel => level.
+  }.
+  on: 'log' do: { ^my loglevel. }.
   on: 'prettyPrintSpec:' do: {:spec
     var s is ''.
     spec each: {:ty:spc
@@ -388,27 +390,51 @@ var api is Object cnew: {
       outPen writeln: 'const process_${{k ~ 's/\\W/_/g'}}$ = require("./endpoints/${{k ~ 's/\\W/_/g'}}$.js");'.
     }.
     actions each: {:k:spec
-      outPen writeln: 'const process_${{k ~ 's/\\W/_/g'}}$ = require("./actions/${{k ~ 's/\\W/_/g'}}$.js");'.
+      outPen writeln: 'const process_${{k ~ 's/\\W/_/g'}}$ = require("./endpoints/${{k ~ 's/\\W/_/g'}}$.js");'.
       spec action each: {:i
         outPen writeln: 'const action_${{k ~ 's/\\W/_/g'}}$_${{i}}$ = require("./actions/${{k ~ 's/\\W/_/g'}}$-action${{i}}$.js");'.
       }.
     }.
     outPen brk.
+    # first, define the types
+    var f is File new: 'types.js'.
+    f exists ifTrue: {
+      errPen magenta write: 'types file exists at $$f', red write: ' overwriting it.', resetColor brk.
+    }.
+    f open: 'w+'.
+    var typePen is pPen for: f.
+    typePen writeln: 'module.exports = {};'.
+    var typenames is Array < 'ArrayType'.
+    type allInstanceTypes each: {:k:v
+      v isA: Number, ifTrue: {
+        typenames push: k.
+        typePen writeln: 'let $$k = {'.
+        var struct is type getStructure: v.
+        struct each: {:k:v
+          typePen writeln: '\t\'${{k}}$\': arg => ${{v _underlayingJSType or: v}}$.call(null, arg),'.
+        }.
+        typePen writeln: '\tcall(_, value) {'.
+        typePen writeln: '\t\tlet obj = {};'.
+        typePen writeln: '\t\tfor (property in ${{k}}$)'.
+        typePen writeln: '\t\t\tif (property !== "call" && ${{k}}$.hasOwnProperty(property))'.
+        typePen writeln: '\t\t\t\tobj[property] = ${{k}}$[property](value[property]);'.
+        typePen writeln: '\t\treturn obj;\n\t}'.
+        typePen writeln: '};'.
+        typePen writeln: 'module.exports["${{k}}$"] = $$k'.
+        typePen brk.
+      }.
+    }.
+    typePen writeln: 'function ArrayType(inner) {'.
+    typePen writeln: '\treturn {\n\t\tcall(_, value) {'.
+    typePen writeln: '\t\t\treturn Array.prototype.slice.call(value).map(x => inner.call(null, x));'.
+    typePen writeln: '\t\t}\n\t};\n};'.
+    typePen writeln: 'module.exports["ArrayType"] = ArrayType;'.
+    outPen writeln: 'const {%:L} = require("./types.js");' % [', ', typenames].
+    outPen brk.
     outPen writeln: 'function getOrFail(obj, prop) {\n\t' +
                  'let oprop = obj[prop];\n\t' +
                  'if (oprop !== null) return oprop;\n\t' +
                  'throw new Error(`missing argument ${prop}`);\n}'.
-    # first, define the types
-    type allInstanceTypes each: {:k:v
-      v isA: Number, ifTrue: {
-        outPen writeln: 'let $$k = {'.
-        var struct is type getStructure: v.
-        struct each: {:k:v
-          outPen writeln: '\t\'${{k}}$\': ${{v _underlayingJSType or: v}}$,'.
-        }.
-        outPen writeln: '};'.
-      }.
-    }.
     # then, define the fancy routes for endpoints
     { File new: 'endpoints', mkdir. } catch: {}, run.
     endpoints each: {:route:spec
@@ -437,24 +463,26 @@ var api is Object cnew: {
       f exists ifTrue: {
         errPen magenta writeln: 'route handler for ${{route}}$ existed at ${{f path}}$, not touching it', resetColor.
       } ifFalse: {
+        f open: 'w+'.
+        f write: 'const {%:L} = require("../types.js");\n\n' % [', ', typenames].
         f write: typedoc_out + '\n' + typedoc_in +
                  '\n\nmodule.exports = function process_${{route ~ 's/\\W/_/g'}}$(res_input, res_output)' +
                  ' {\n\t// TODO: implement\n\treturn res_output;\n}'.
+        f close.
       }.
-      outPen writeln: 'app.post("/${{route}}$", (res, req) => {'.
+      outPen writeln: 'app.get("/${{route}}$", (req, res) => {'.
+      api log = \debug ifTrue: {
+        outPen writeln: '\tconsole.log("[DEBUG] activity on route ${{route}}$");'.
+      }.
       # get the fields
-      outPen writeln: '\tvar bodyStr = "";'.
-      outPen writeln: '\treq.on("data",function(chunk) { bodyStr += chunk.toString(); });'.
-      outPen writeln: '\treq.on("end", function() {'.
       (spec request isNil either: True or: { ^spec request fields isNil. }) ifTrue: {
         outPen writeln: '\t\ttry {'.
         outPen writeln: '\t\t\tlet res_input = {};'.
       } ifFalse: {
         outPen writeln: '\t\ttry {'.
-        outPen writeln: '\t\t\tlet jsondec = JSON.parse(bodyStr);'.
         outPen writeln: '\t\t\tlet res_input = {'.
         spec request fields each: {:k:v
-          outPen writeln: '\t\t\t\t\'${{k}}$\': getOrFail(jsondec, \'${{k}}$\'),'.
+          outPen writeln: '\t\t\t\t\'${{k}}$\': getOrFail(req.params, \'${{k}}$\'),'.
         }.
         outPen writeln: '\t\t\t};\n'.
       }.
@@ -471,7 +499,7 @@ var api is Object cnew: {
       }.
       outPen writeln: '\t\t\tres.send(JSON.stringify(process_${{route ~ 's/\\W/_/g'}}$(res_input, res_output)));\n'.
       outPen writeln: '\t\t} catch(e) { res.send(JSON.stringify({error: e})); }'.
-      outPen writeln: '\t});\n});'.
+      outPen writeln: '\n});'.
     }.
     # then, define the routes and processors for actions
     { File new: 'actions', mkdir. } catch: {}, run.
@@ -497,13 +525,16 @@ var api is Object cnew: {
         typedoc_out +=: ' */\n'.
       }.
 
-      var f is File new: 'actions/${{route ~ 's/\\W/_/g'}}$.js'.
+      var f is File new: 'endpoints/${{route ~ 's/\\W/_/g'}}$.js'.
       f exists ifTrue: {
         errPen magenta writeln: 'route handler for ${{route}}$ existed at ${{f path}}$, not touching it', resetColor.
       } ifFalse: {
+        f open: 'w+'.
+        f write: 'const {%:L} = require("../types.js");\n\n' % [', ', typenames].
         f write: typedoc_out + '\n' + typedoc_in +
                  'module.exports = function process_${{route ~ 's/\\W/_/g'}}$(res_input, res_output)' +
                  ' {\n\t// TODO: implement\n\treturn res_output;\n}'.
+        f close.
       }.
       spec action each: {:idx:action
         var f is File new: 'actions/${{route ~ 's/\\W/_/g'}}$-action${{idx}}$.js'.
@@ -516,10 +547,15 @@ var api is Object cnew: {
                         '\n\treturn true;\n}\n'.
         }.
       }.
-      outPen writeln: 'app.post("/${{route}}$", (res, req) => {'.
+      outPen writeln: 'app.post("/${{route}}$", (req, res) => {'.
+      api log = \debug ifTrue: {
+        outPen writeln: '\tconsole.log("[DEBUG] activity on ${{route}}$");'.
+      }.
       # get the fields
       outPen writeln: '\tvar bodyStr = "";'.
-      outPen writeln: '\treq.on("data",function(chunk) { bodyStr += chunk.toString(); });'.
+      outPen writeln: '\treq.on("data",function(chunk) { '.
+      outPen writeln: '\t\tbodyStr += chunk.toString();'.
+      outPen writeln: '\t});'.
       outPen writeln: '\treq.on("end", function() {'.
       (spec request isNil either: True or: { ^spec request fields isNil. }) ifTrue: {
         outPen writeln: '\t\tlet res_input = {};'.
@@ -552,5 +588,6 @@ var api is Object cnew: {
       outPen writeln: '\t\t} catch(e) { res.send(JSON.stringify({error: e})); }'.
       outPen writeln: '\t});\n});'.
     }.
+    outPen writeln: 'app.listen(8080, () => console.log("App listening on port 8080!"));'.
   }.
 }.

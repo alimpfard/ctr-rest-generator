@@ -3,7 +3,7 @@
  */
 /**
  * res_output
- * @param person: [Person]
+ * @param person: ArrayType(Person)
  */
 
 /**
