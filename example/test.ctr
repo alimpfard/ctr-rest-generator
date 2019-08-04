@@ -13,6 +13,10 @@ model Person [
   reference[City] city
 ].
 
+function testUserExists [
+  int personId
+].
+
 action getPeopleFromCity [
     Request City,
     Response [
@@ -26,7 +30,8 @@ action deletePerson [
         int personId
     ],
     Action ['get user from db',
-            'delete user']
+            'delete user'],
+    Before [ testUserExists ]
 ].
 
 endpoint countUsers [
