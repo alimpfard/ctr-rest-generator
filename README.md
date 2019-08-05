@@ -24,7 +24,28 @@ type declaration:
 ']'
 ```
 
+database models (mongodb is used) can be described as:
+
+```
+'model' name '['
+    type name,
+    ...
+']'
+```
+
+and utility functions (sort of a common check step or input modification step, for instance user login) can be described as:
+
+```
+'function` name '['
+    type name,
+    type name,
+    ...
+']' '->' type name.
+```
+
 the default types are: `int`, `double`, `boolean`, `string`, `typename[]`
+
+kinds that generate types are: `enum`
 
 api point spec:
 
@@ -40,7 +61,8 @@ point_type name '['
         type name,
         ...
     ']'},
-    { 'Action' string } | { 'Action' '[' string, string, ... ']' }
+    { 'Action' string } | { 'Action' '[' string, string, ... ']' },
+    { 'Before' '[' function_name, ... '] }
 ']'
 ```
 
