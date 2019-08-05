@@ -1,4 +1,4 @@
-const {ArrayType} = require("../types.js");
+const {ArrayType, Enum0} = require("../types.js");
 
 const {City, Person} = require("../models.js");
 

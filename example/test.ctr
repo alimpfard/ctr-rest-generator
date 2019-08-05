@@ -1,6 +1,8 @@
 import generate: \*.
 
 model City [
+  string SOME_CONSTANT pure ['constant value'],
+
   string country,
   string city,
   int countryCode,
@@ -15,7 +17,7 @@ model Person [
 
 function testUserExists [
   int personId
-].
+] -> boolean exists.
 
 action getPeopleFromCity [
     Request City,
@@ -27,7 +29,8 @@ action getPeopleFromCity [
 
 action deletePerson [
     Request [
-        int personId
+        int personId,
+        enum['wipe', 'hide'] method
     ],
     Action ['get user from db',
             'delete user'],

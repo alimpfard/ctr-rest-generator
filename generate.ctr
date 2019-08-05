@@ -10,10 +10,12 @@ var type is Object cnew: {
   allInstanceTypes => HashMap new.
   structures => Map new.
   alternative => False.
+  allTypeDefs => HashMap new.
   on: 'complete' do: {
     alternative => False.
   }.
   on: 'allInstanceTypes' do: { ^my allInstanceTypes. }.
+  on: 'allTypeDefs' do: { ^my allTypeDefs. }.
   on: 'respondTo:' do: {:self:typename
     typename = 'alternative' ifTrue: {
       alternative => True.
@@ -25,6 +27,7 @@ var type is Object cnew: {
       alternative => alternative.
       type => self.
       on: 'applyAll:' do: {:defn
+        var type is Nil.
         my alternative ifTrue: {
           errPen yellow write: 'type ${{my name}}$ has alternative definitions, ', resetColor.
           errPen red writeln: 'it will not be recorded (TODO)', resetColor.
@@ -32,11 +35,18 @@ var type is Object cnew: {
           var structureId is my type getOrCreateStructure: defn.
           my type register: my name as: structureId.
           Reflect addGlobalVariable: my name.
-          var type is Type cnew: { structureId => structureId. underlayingJSType => Nil. } named: my name.
+          type is Type cnew: { structureId => structureId. underlayingJSType => Nil. } named: my name.
+          my type setType: my name to: type.
           Reflect set: my name to: type.
         }.
         my type complete.
+        ^ type.
       }.
+    }.
+  }.
+  on: 'setType:to:' do: {:name:type
+    my allTypeDefs at: name, isNil ifTrue: {
+      my allTypeDefs put: type at: name.
     }.
   }.
   on: 'register:as:' do: {:name:structureId
@@ -54,7 +64,7 @@ var type is Object cnew: {
       tymap contains: ntpair fname, ifTrue: {
         errPen red writeln: 'field ${{ntpair fname}}$ already exists in the structure as ${{tymap at: ntpair fname}}$, ignoring the new field', resetColor.
       } ifFalse: {
-        tymap put: ntpair ftype at: ntpair fname.
+        tymap put: ntpair at: ntpair fname.
       }.
     }.
     ^tymap.
@@ -72,7 +82,7 @@ var type is Object cnew: {
     compiled isNil ifTrue: {
       ^'{}'.
     }.
-    ^miniPrintStructureEx: compiled.
+    ^miniPrintStructureEx: compiled ftype.
   }.
   on: 'miniPrintStructureEx:' do: {:compiled
     var s is '{'.
@@ -91,13 +101,18 @@ var Type is Object cnew: {
   on: 'cnew:named:' do: {:blk:name
     ^me cnew: blk, name: name.
   }.
-  genAccessors: ['structureId'].
+  genAccessors: ['structureId', 'return', 'returns', 'native?', 'itype!'].
+  itype!: Nil.
   on: 'name:' do: {:name my name is name. }.
   on: 'toString' do: { ^my name. }.
   on: 'applyAll:' do: {
     ^ArrayType getOrCreate: me.
   }.
   on: '_underlayingJSType' do: { ^my underlayingJSType or: my name. }.
+  on: '->' do: {:ret
+    returns => True.
+    return => ret.
+  }.
   on: 'respondTo:' do: {:self:name
     ^Object cnew: {
       ftype => self.
@@ -105,12 +120,18 @@ var Type is Object cnew: {
       underlayingJSType => Nil.
       default => Nil.
       unique? => False.
-      genAccessors: ['fname', 'ftype', 'unique?'].
+      pure? => False.
+      returns => False.
+      return => Nil.
+      genAccessors: ['fname', 'ftype', 'unique?', 'pure?'].
       on: 'unique' do: { my unique? is True. }.
+      on: 'pure' do: { my pure? is True. }. # only applies to models
       on: 'toString' do: {
         ^'<%s %s>' % [my ftype, my fname].
       }.
       on: 'default:' do: {:def default => def. }.
+      on: 'default?' do: { ^my default isNil not. }.
+      on: 'default!' do: { ^my default. }.
       on: 'default' do: { ^my default or: my ftype _underlayingJSType, or: my ftype. }.
       on: 'type' do: { ^'NameTypePair'. }.
       on: 'applyAll:' do: {:x default: x head. }.
@@ -137,8 +158,9 @@ var ArrayType is Type cnew: {
       ^instance.
     }.
   }.
-  on: 'create:' do: {:inner
+  on: 'create:' do: {:self:inner
     ^me cnew: {
+      native?: True.
       etype => inner.
     }.
   }.
@@ -150,29 +172,41 @@ var ArrayType is Type cnew: {
 
 var int is Type cnew: {
   underlayingJSType => 'Number'.
+  native?: True.
 } named: 'int'.
 
 var string is Type cnew: {
   underlayingJSType => 'String'.
+  native?: True.
 } named: 'string'.
 
 var double is Type cnew: {
   underlayingJSType => 'Number'.
+  native?: True.
 } named: 'double'.
 
 var boolean is Type cnew: {
   underlayingJSType => 'Boolean'.
+  native?: True.
 } named: 'boolean'.
 
 var enum is Object cnew: {
   choicemap => Map new.
-  on: 'applyAll:' do: {:choices
+  on: 'choicemap' do: {^my choicemap.}.
+  on: 'applyAll:' do: {:self:choices
     var ty is my choicemap at: choices.
     ty isNil ifTrue: {
+      var name is 'enum' + my choicemap count.
       ty is Type cnew: {
         choices => choices.
-        underlayingJSType => 'String'.
-      } named: 'enum' + (my choicemap count).
+        underlayingJSType => name upper1st.
+
+        native?: False.
+        itype!: self.
+
+        on: 'choices!' do: { ^my choices. }.
+      } named: name.
+      my choicemap put: ty at: choices.
     }.
     ^ty.
   }.
@@ -402,6 +436,7 @@ var action is Object cnew: {
 
 var function is type cnew: {
   allInstanceTypes => HashMap new.
+  allTypeDefs => HashMap new.
   structures => Map new.
   alternative => False.
 }.
@@ -415,6 +450,7 @@ var ModelSpec is Object cnew: {
 
 var model is type cnew: {
   allInstanceTypes => HashMap new.
+  allTypeDefs => HashMap new.
   structures => Map new.
   alternative => False.
 }.
@@ -442,7 +478,7 @@ var ReferenceType is Type cnew: {
       etype => inner.
     }.
   }.
-  on: '_underlayingJSType' do: { ^'Number'. }.
+  on: '_underlayingJSType' do: { ^'String'. }.
   on: 'toString' do: {
     ^'reference[%s]' % [my etype].
   }.
@@ -498,6 +534,18 @@ var api is Object cnew: {
       outPen writeln: '\t]'.
     }.
   }.
+  on: 'writeJsonFor:' do: {:reqps
+    reqps each_v: {:req
+      var point is endpoints @ req or: actions @ req.
+      Pen writeln: '$$req = {'.
+      point request isNil ifFalse: {
+        point request fields each: {:k:v
+          Pen writeln: '\t"${{k}}$": ${{v default! or: 'null'}}$,'.
+        }.
+      }.
+      Pen writeln: '}'.
+    }.
+  }.
   on: 'generate' do: {
     # generate js...?
     # express + toplevel boilerplate
@@ -527,19 +575,38 @@ var api is Object cnew: {
         typenames push: k.
         typePen writeln: 'let $$k = {'.
         var struct is type getStructure: v.
+        var sprops is Array < 'call' ; 'staticProperties'.
         struct each: {:k:v
-          typePen writeln: '\t\'${{k}}$\': arg => ${{v _underlayingJSType or: v}}$.call(null, arg),'.
+          v pure? ifTrue: {
+            sprops push: k.
+          }.
+          typePen writeln: '\t\'${{k}}$\': arg => ${{v ftype _underlayingJSType or: v ftype}}$.call(null, arg),'.
         }.
+        typePen write: '\tstaticProperties: [%:L],\n' % [', ', sprops fmap: \:x '"%s"' % [x]].
         typePen writeln: '\tcall(_, value) {'.
         typePen writeln: '\t\tlet obj = {};'.
         typePen writeln: '\t\tfor (property in ${{k}}$)'.
-        typePen writeln: '\t\t\tif (property !== "call" && ${{k}}$.hasOwnProperty(property))'.
+        typePen writeln: '\t\t\tif ((!${{k}}$.staticProperties.includes(property)) && ${{k}}$.hasOwnProperty(property))'.
         typePen writeln: '\t\t\t\tobj[property] = ${{k}}$[property](value[property]);'.
         typePen writeln: '\t\treturn obj;\n\t}'.
         typePen writeln: '};'.
         typePen writeln: 'module.exports["${{k}}$"] = $$k'.
         typePen brk.
       }.
+    }.
+    enum choicemap each: {:_:type
+      var typename is type toString upper1st.
+      typenames push: typename.
+      typePen writeln: 'let $$typename = {'.
+      typePen writeln: '\tchoices: [%:L],' % [', ', type choices! fmap: \:x '"%s"' % [x escapeDoubleQuotes]].
+      typePen writeln: '\tcall(_, value) {'.
+      typePen writeln: '\t\tif (${{typename}}$.choices.includes(value))'.
+      typePen writeln: '\t\t\treturn value;'.
+      typePen writeln: '\t\telse'.
+      typePen writeln: '\t\t\treturn undefined;'.
+      typePen writeln: '\t}'.
+      typePen writeln: '};'.
+      typePen writeln: 'module.exports["${{typename}}$"] = $$typename'.
     }.
     typePen writeln: 'function ArrayType(inner) {'.
     typePen writeln: '\treturn {\n\t\tcall(_, value) {'.
@@ -562,13 +629,23 @@ var api is Object cnew: {
         modelnames push: k.
         modelPen writeln: 'let $$k = {'.
         var struct is model getStructure: v.
+        var sprops is Array < 'call' ; 'db' ; 'staticProperties'.
         struct each: {:k:v
-          modelPen writeln: '\t\'${{k}}$\': arg => ${{v _underlayingJSType or: v}}$.call(null, arg),'.
+          v pure? ifTrue: {
+            sprops push: k.
+            v default? ifFalse: {
+              errPen yellow write: 'pure property $$k of model ${{modelnames last}}$ does not have a value set', resetColor brk.
+            }.
+            modelPen writeln: '\t\'${{k}}$\': ${{v default! or: 'null'}}$,'.
+          } ifFalse: {
+            modelPen writeln: '\t\'${{k}}$\': arg => ${{v ftype _underlayingJSType or: v ftype}}$.call(null, arg),'.
+          }.
         }.
+        modelPen write: '\tstaticProperties: [%:L],\n' % [', ', sprops fmap: \:x '"%s"' % [x]].
         modelPen writeln: '\tcall(_, value) {'.
         modelPen writeln: '\t\tlet obj = {};'.
         modelPen writeln: '\t\tfor (property in ${{k}}$)'.
-        modelPen writeln: '\t\t\tif (property !== "call" && property !== "db" && ${{k}}$.hasOwnProperty(property))'.
+        modelPen writeln: '\t\t\tif ((!${{k}}$.staticProperties.includes(property)) && ${{k}}$.hasOwnProperty(property))'.
         modelPen writeln: '\t\t\t\tobj[property] = ${{k}}$[property](value[property]);'.
         modelPen writeln: '\t\treturn obj;\n\t},'.
         # database access methods
@@ -584,6 +661,7 @@ var api is Object cnew: {
     f exists ifFalse: {
       f mkdir.
     }.
+
     function allInstanceTypes each: {:k:v
       v isA: Number, ifTrue: {
         functionNames push: k.
@@ -593,17 +671,24 @@ var api is Object cnew: {
         } ifFalse: {
           f open: 'w+'.
           var funcPen is pPen for: f.
-          funcPen writeln: 'const {%:L} = require("./types.js");' % [', ', typenames].
-          funcPen writeln: 'const {%:L} = require("./models.js");' % [', ', modelnames].
+          funcPen writeln: 'const {%:L} = require("../types.js");' % [', ', typenames].
+          funcPen writeln: 'const {%:L} = require("../models.js");' % [', ', modelnames].
           funcPen brk.
           funcPen write: 'module.exports = async function ${{k}}$('.
           var struct is function getStructure: v.
-          var s is Array new.
-          struct each: {:k:v
-            s push: k.
+          var s is Array new < 'args' ; 'failure'.
+          var type is function allTypeDefs at: k.
+          type returns ifTrue: {
+            s push: type return fname.
           }.
           funcPen writeln: '%:L) {' % [', ', s].
+          struct each: {:k:v
+            funcPen writeln: '\tlet $$k = args.${{k}}$;'.
+          }.
           funcPen writeln: '\t// TODO: do something you\'re supposed to do'.
+          type returns ifTrue: {
+            funcPen writeln: '\t${{type return fname}}$.value = null; // return ${{type return ftype}}$'.
+          }.
           funcPen writeln: '\treturn true;'.
           funcPen writeln: '}'.
           f close.
@@ -617,10 +702,20 @@ var api is Object cnew: {
       outPen writeln: 'const $$funcname = require("./utilities/${{funcname}}$.js");'.
     }.
     outPen brk.
-    outPen writeln: 'function getOrFail(obj, prop) {\n\t' +
+    outPen writeln: 'function getOrFail(type, obj, prop) {\n\t' +
                  'let oprop = obj[prop];\n\t' +
-                 'if (oprop !== null) return oprop;\n\t' +
-                 'throw new Error(`missing argument ${prop}`);\n}'.
+                 'if (typeof(oprop) === "undefined" || oprop === null) {\n\t' +
+                  (api log = \debug either:
+                    '\tconsole.log("[DEBUG] nonexistent getOrFail for " + prop + " from " + JSON.stringify(obj));\n\t'
+                  or: '') +
+                 '\tthrow new Error(`missing argument ${prop}`);\n\t}\n\t' +
+                 'oprop = type.call(null, oprop);\n\t' +
+                 'if (typeof(oprop) === "undefined" || oprop === null) {\n\t' +
+                  (api log = \debug either:
+                    '\tconsole.log("[DEBUG] nonexistent getOrFail for " + prop + " from " + JSON.stringify(obj));\n\t'
+                  or: '') +
+                 '\tthrow new Error(`wrong type for argument ${prop}`);\n\t}\n\t' +
+                 'return oprop;\n}' .
     # then, define the fancy routes for endpoints
     { File new: 'endpoints', mkdir. } catch: {}, run.
     endpoints each: {:route:spec
@@ -636,7 +731,7 @@ var api is Object cnew: {
           typedoc_in +=: ' * @param ${{k}}$: ${{fields _underlayingJSType or: fields}}$\n'.
         } ifFalse: {
           spec request fields each: {:k:v
-            typedoc_in +=: ' * @param ${{k}}$: ${{v _underlayingJSType or: v}}$\n'.
+            typedoc_in +=: ' * @param ${{k}}$: ${{v ftype _underlayingJSType or: v ftype}}$\n'.
           }.
         }.
         typedoc_in +=: ' */\n'.
@@ -652,8 +747,8 @@ var api is Object cnew: {
             out_constructors +=: 'constructReturn = x => (${{fields _underlayingJSType or: fields}}$).call(null, x);\n'.
         } ifFalse: {
           fields each: {:k:v
-            typedoc_out +=: ' * @param ${{k}}$: ${{v _underlayingJSType or: v}}$\n'.
-            out_constructors +=: 'construct${{k upper1st}}$ = x => (${{v _underlayingJSType or: v}}$).call(null, x);\n'.
+            typedoc_out +=: ' * @param ${{k}}$: ${{v ftype _underlayingJSType or: v ftype}}$\n'.
+            out_constructors +=: 'construct${{k upper1st}}$ = x => (${{v ftype _underlayingJSType or: v ftype}}$).call(null, x);\n'.
           }.
         }.
         typedoc_out +=: ' */\n'.
@@ -685,27 +780,28 @@ var api is Object cnew: {
         outPen writeln: '\t\tbodyStr += chunk.toString();'.
         outPen writeln: '\t});'.
         outPen writeln: '\treq.on("end", async function() {'.
+        outPen writeln: '\t\tlet ok = false, handled = false, res_input = null, res_output = null;'.
         outPen writeln: '\t\tlet jsondec = JSON.parse(bodyStr);'.
       }.
       var fieldsFL is Array new.
       # get the fields
       (spec request isNil either: True or: { ^spec request fields isNil. }) ifTrue: {
-        # outPen writeln: '\t\ttry {'.
-        outPen writeln: '\t\t\tlet res_input = {};'.
+        outPen writeln: '\t\ttry {'.
+        outPen writeln: '\t\t\tres_input = {};'.
       } ifFalse: {
-        # outPen writeln: '\t\ttry {'.
+        outPen writeln: '\t\ttry {'.
         var fields is spec request fields.
         fields isA: Type, ifTrue: {
-          outPen writeln: '\t\t\tlet res_input = ${{fields _underlayingJSType or: fields}}$;'.
+          outPen writeln: '\t\t\tres_input = ${{fields _underlayingJSType or: fields}}$;'.
         } ifFalse: {
-          outPen writeln: '\t\t\tlet res_input = {'.
+          outPen writeln: '\t\t\tres_input = {'.
           fields each: {:k:v
-            fieldsFL push: [k toString, v].
+            fieldsFL push: [k toString, v ftype].
             fieldsFL push: k toString.
             api endpointType = 'get' ifTrue: {
-              outPen writeln: '\t\t\t\t\'${{k}}$\': getOrFail(req.params, \'${{k}}$\'),'.
+              outPen writeln: '\t\t\t\t\'${{k}}$\': getOrFail(${{v ftype _underlayingJSType or: v ftype}}$, req.params, \'${{k}}$\'),'.
             } ifFalse: {
-              outPen writeln: '\t\t\t\t\'${{k}}$\': getOrFail(jsondec, \'${{k}}$\'),'.
+              outPen writeln: '\t\t\t\t\'${{k}}$\': getOrFail(${{v ftype _underlayingJSType or: v ftype}}$, jsondec, \'${{k}}$\'),'.
             }.
           }.
           outPen writeln: '\t\t\t};\n'.
@@ -714,12 +810,17 @@ var api is Object cnew: {
 
       spec before isNil ifFalse: {
         outPen writeln: '\t\t\tlet failure = {error:null, ok:null};'.
+        spec before each: {:func:fn
+          fn returns ifTrue: {
+            outPen writeln: '\t\t\tlet ${{fn}}$_${{fn return fname}}$ = {value: null};'.
+          }.
+        }.
         outPen write: '\t\t\tif (!('.
         spec before each: {:func:fn
           outPen write: 'await ${{fn}}$('.
           var s is Array new.
           function getStructure: fn structureId, each: {:v:k
-            fieldsFL contains: [v toString, k], ifFalse: {
+            fieldsFL contains: [v toString, k ftype], ifFalse: {
               errPen yellow write: '(Route ${{route}}$) parameter $$v of function $$fn does not seem to exist'.
               fieldsFL contains: v toString, ifTrue: {
                 var type is fieldsFL filter_v: {:x ^x isA: Array, either: { ^x head = v. } or: False.}.
@@ -727,14 +828,18 @@ var api is Object cnew: {
                   errPen write: ', while being registered ', red write: '(Internal Compiler Error)'.
                 } ifFalse: {
                   type is type head last.
-                  errPen write: ' with the valid type (expected ${{k}}$, but found ${{type}}$)'.
+                  errPen write: ' with the valid type (expected ${{k ftype}}$, but found ${{type}}$)'.
                 }.
               }.
               errPen resetColor brk.
             }.
-            s push: 'res_input["${{v}}$"]'.
+            s push: '"${{v}}$": res_input["${{v}}$"]'.
           }.
+          s is Array < ('{' + (s join: ', ') + '}').
           s push: 'failure'.
+          fn returns ifTrue: {
+            s push: '${{fn}}$_${{fn return fname}}$'.
+          }.
           outPen write: '%:L' % [', ', s].
           outPen write: ') &&\n\t\t\t    '.
         }.
@@ -746,22 +851,30 @@ var api is Object cnew: {
 
       # generate the output structure
       (spec response isNil either: True or: { ^spec response fields isNil. }) ifTrue: {
-        outPen writeln: '\t\t\tlet res_output = {'.
+        outPen writeln: '\t\t\tres_output = {'.
         outPen writeln: '\t\t\t};'.
       } ifFalse: {
         var fields is spec response fields.
         fields isA: Type, ifTrue: {
-          outPen writeln: '\t\t\tlet res_output = ${{fields _underlayingJSType or: fields}}$;'.
+          outPen writeln: '\t\t\tres_output = ${{fields _underlayingJSType or: fields}}$;'.
         } ifFalse: {
-          outPen writeln: '\t\t\tlet res_output = {'.
+          outPen writeln: '\t\t\tres_output = {'.
           fields each: {:k:v
-            outPen writeln: '\t\t\t\t\'${{k}}$\': ${{v _underlayingJSType or: v}}$,'.
+            outPen writeln: '\t\t\t\t\'${{k}}$\': ${{v ftype _underlayingJSType or: v ftype}}$,'.
           }.
           outPen writeln: '\t\t\t};\n'.
         }.
       }.
-      outPen writeln: '\t\t\tres.send(await process_${{route ~ 's/\\W/_/g'}}$(res_input, res_output));\n'.
-      # outPen writeln: '\t\t} catch(e) { res.status(500).send({error: e.toString()}); }'.
+      spec before isNil ifFalse: {
+        spec before each: {:func:fn
+          fn returns ifTrue: {
+            outPen writeln: '\t\t\tres_input["${{fn return fname}}$"] = ${{fn}}$_${{fn return fname}}$.value;'.
+          }.
+        }.
+      }.
+      outPen writeln: '\t\t\tres.send(await process_${{route ~ 's/\\W/_/g'}}$(res_input, res_output));\n\t\t\tok = true;\n'.
+      outPen writeln: '\t\t} catch(e) {\n\t\t\tok = false;\n\t\t\thandled = true;\n\t\t\tres.status(500).send({_error: e.toString(), ...res_output});'.
+      outPen writeln: '\t\t} finally {\n\t\t\tif (!ok && !handled) res.status(500).send(res_output);\n\t\t\t}'.
       outPen writeln: '\n});'.
       api endpointType = 'post' ifTrue: {
         outPen writeln: '\t});'.
@@ -782,7 +895,7 @@ var api is Object cnew: {
           typedoc_in +=: ' * = ${{fields _underlayingJSType or: fields}}$\n'.
         } ifFalse: {
           spec request fields each: {:k:v
-            typedoc_in +=: ' * @param ${{k}}$: ${{v _underlayingJSType or: v}}$\n'.
+            typedoc_in +=: ' * @param ${{k}}$: ${{v ftype _underlayingJSType or: v ftype}}$\n'.
           }.
         }.
         typedoc_in +=: ' */\n'.
@@ -796,8 +909,8 @@ var api is Object cnew: {
           typedoc_out +=: ' * = ${{fields _underlayingJSType or: fields}}$\n'.
         } ifFalse: {
           spec response fields each: {:k:v
-            typedoc_out +=: ' * @param ${{k}}$: ${{v _underlayingJSType or: v}}$\n'.
-            out_constructors +=: 'construct${{k upper1st}}$ = x => (${{v _underlayingJSType or: v}}$).call(null, x);\n'.
+            typedoc_out +=: ' * @param ${{k}}$: ${{v ftype _underlayingJSType or: v ftype}}$\n'.
+            out_constructors +=: 'construct${{k upper1st}}$ = x => (${{v ftype _underlayingJSType or: v ftype}}$).call(null, x);\n'.
           }.
         }.
         typedoc_out +=: ' */\n'.
@@ -845,6 +958,7 @@ var api is Object cnew: {
       (spec request isNil either: True or: { ^spec request fields isNil. }) ifTrue: {
         outPen writeln: '\t\tlet res_input = {};'.
       } ifFalse: {
+        outPen writeln: '\t\t\tdbsession.startTransaction();'.
         outPen writeln: '\t\ttry {'.
         outPen writeln: '\t\t\tlet jsondec = JSON.parse(bodyStr);'.
         var fields is spec request fields.
@@ -853,22 +967,26 @@ var api is Object cnew: {
         } ifFalse: {
           outPen writeln: '\t\t\tres_input = {'.
           spec request fields each: {:k:v
-            fieldsFL push: [k toString, v].
+            fieldsFL push: [k toString, v ftype].
             fieldsFL push: k toString.
-            outPen writeln: '\t\t\t\t\'${{k}}$\': getOrFail(jsondec, \'${{k}}$\'),'.
+            outPen writeln: '\t\t\t\t\'${{k}}$\': getOrFail(${{v ftype _underlayingJSType or: v ftype}}$, jsondec, \'${{k}}$\'),'.
           }.
           outPen writeln: '\t\t\t};\n'.
         }.
       }.
-
       spec before isNil ifFalse: {
         outPen writeln: '\t\t\tlet failure = {error:null, ok:null};'.
+        spec before each: {:func:fn
+          fn returns ifTrue: {
+            outPen writeln: '\t\t\tlet ${{fn}}$_${{fn return fname}}$ = {value: null};'.
+          }.
+        }.
         outPen write: '\t\t\tif (!('.
         spec before each: {:func:fn
           outPen write: 'await ${{fn}}$('.
           var s is Array new.
           function getStructure: fn structureId, each: {:v:k
-            fieldsFL contains: [v toString, k], ifFalse: {
+            fieldsFL contains: [v toString, k ftype], ifFalse: {
               errPen yellow write: '(Route ${{route}}$) parameter $$v of function $$fn does not seem to exist'.
               fieldsFL contains: v toString, ifTrue: {
                 var type is fieldsFL filter_v: {:x ^x isA: Array, either: { ^x head = v. } or: False.}.
@@ -876,14 +994,18 @@ var api is Object cnew: {
                   errPen write: ', while being registered ', red write: '(Internal Compiler Error)'.
                 } ifFalse: {
                   type is type head last.
-                  errPen write: ' with the valid type (expected ${{k}}$, but found ${{type}}$)'.
+                  errPen write: ' with the valid type (expected ${{k ftype}}$, but found ${{type}}$)'.
                 }.
               }.
               errPen resetColor brk.
             }.
-            s push: 'res_input["${{v}}$"]'.
+            s push: '"${{v}}$": res_input["${{v}}$"]'.
           }.
+          s is Array < ('{' + (s join: ', ') + '}').
           s push: 'failure'.
+          fn returns ifTrue: {
+            s push: '${{fn}}$_${{fn return fname}}$'.
+          }.
           outPen write: '%:L' % [', ', s].
           outPen write: ') &&\n\t\t\t    '.
         }.
@@ -903,12 +1025,18 @@ var api is Object cnew: {
         } ifFalse: {
           outPen writeln: '\t\t\tres_output = {'.
           spec response fields each: {:k:v
-            outPen writeln: '\t\t\t\t\'${{k}}$\': ${{v _underlayingJSType or: v}}$,'.
+            outPen writeln: '\t\t\t\t\'${{k}}$\': ${{v ftype _underlayingJSType or: v ftype}}$,'.
           }.
           outPen writeln: '\t\t\t};\n'.
         }.
       }.
-      outPen writeln: '\t\t\tdbsession.startTransaction();'.
+      spec before isNil ifFalse: {
+        spec before each: {:func:fn
+          fn returns ifTrue: {
+            outPen writeln: '\t\t\tres_input["${{fn return fname}}$"] = ${{fn}}$_${{fn return fname}}$.value;'.
+          }.
+        }.
+      }.
       outPen write: '\t\t\tif ('.
       spec action each: {:idx:action
         outPen write: 'await action_${{route ~ 's/\\W/_/g'}}$_${{idx}}$(res, req, res_output, res_input) &&\n\t\t\t    '.
@@ -918,7 +1046,7 @@ var api is Object cnew: {
       outPen writeln: '\t\t\t\tok = true;\n\t\t\t}'.
       outPen writeln: '\t\t\telse {\n\t\t\t\tok = false;\n\t\t\t}'.
       outPen writeln: '\t\t} catch(e) {\n\t\t\tok = false;\n\t\t\thandled = true;\n\t\t\tres.status(500).send({_error: e.toString(), ...res_output});'.
-      outPen writeln: '\t\t} finally {\n\t\t\tif (ok)\n\t\t\t\tawait dbsession.commitTransaction();\n\t\t\telse await dbsession.abortTransaction();\n\t\t\tif (!handled) res.status(500).send(res_output);\n\t\t\t}'.
+      outPen writeln: '\t\t} finally {\n\t\t\tif (ok)\n\t\t\t\tawait dbsession.commitTransaction();\n\t\t\telse await dbsession.abortTransaction();\n\t\t\tif (!ok && !handled) res.status(500).send(res_output);\n\t\t\t}'.
       outPen writeln: '\t});\n});'.
     }.
     outPen writeln: 'MongoClient.connect(config.mongo_addr, {useNewUrlParser: true}, (err, client) => {'.
