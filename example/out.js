@@ -14,25 +14,27 @@ const process_getPeopleFromCity = require("./endpoints/getPeopleFromCity.js");
 const action_getPeopleFromCity_0 = require("./actions/getPeopleFromCity-action0.js");
 
 const {ArrayType, Enum0} = require("./types.js");
-const {City, Person} = require("./models.js");
+const {Person, City} = require("./models.js");
 const testUserExists = require("./utilities/testUserExists.js");
 
-function getOrFail(type, obj, prop) {
+function getOrFail(type, obj, prop, _default) {
 	let oprop = obj[prop];
-	if (typeof(oprop) === "undefined" || oprop === null) {
+	if ((typeof(oprop) === "undefined" || oprop === null) && !_default) {
 		throw new Error(`missing argument ${prop}`);
 	}
+	if (typeof(oprop) === "undefined" || oprop === null)
+		return _default;
 	oprop = type.call(null, oprop);
-	if (typeof(oprop) === "undefined" || oprop === null) {
+	if ((typeof(oprop) === "undefined" || oprop === null) && !_default) {
 		throw new Error(`wrong type for argument ${prop}`);
 	}
-	return oprop;
+	return (typeof(oprop) === "undefined" || oprop === null) ? _default : oprop;
 }
 app.get("/countUsers", async (req, res) => {
 		try {
 			res_input = {};
 			res_output = {
-				'count': Number,
+				'count': null /* Number */,
 			};
 
 			res.send(await process_countUsers(res_input, res_output));
@@ -53,17 +55,19 @@ app.post("/deletePerson", async (req, res) => {
 		bodyStr += chunk.toString();
 	});
 	req.on("end", async function() {
+		bodyStr = bodyStr
 		let ok = false, handled = false, res_input = null, res_output = null;
+		let jsondec = JSON.parse(bodyStr);
 			dbsession.startTransaction();
+		let total_failure = {fail_early: false, action_handled_response: false};
 		try {
-			let jsondec = JSON.parse(bodyStr);
 			res_input = {
-				'personId': getOrFail(Number, jsondec, 'personId'),
-				'method': getOrFail(Enum0, jsondec, 'method'),
+				'personId': getOrFail(Number, jsondec, 'personId', null),
+				'method': getOrFail(Enum0, jsondec, 'method', null),
 			};
 
 			let failure = {error:null, ok:null};
-			let testUserExists_exists = {value: null};
+			let testUserExists_exists = {set value(val) { res_input["exists"] = val; }};
 			if (!(await testUserExists({"personId": res_input["personId"]}, failure, testUserExists_exists) &&
 			    true)) {
 				handled = true;
@@ -71,9 +75,8 @@ app.post("/deletePerson", async (req, res) => {
 				return;
 			}
 			res_output = {};
-			res_input["exists"] = testUserExists_exists.value;
-			if (await action_deletePerson_0(res, req, res_output, res_input) &&
-			    await action_deletePerson_1(res, req, res_output, res_input) &&
+			if (await action_deletePerson_0(res, req, res_output, res_input, total_failure) &&
+			    await action_deletePerson_1(res, req, res_output, res_input, total_failure) &&
 			    true) {
 				res.send(await process_deletePerson(res_input, res_output));
 				ok = true;
@@ -81,34 +84,37 @@ app.post("/deletePerson", async (req, res) => {
 			else {
 				ok = false;
 			}
+			handled = total_failure.action_handled_response;
 		} catch(e) {
 			ok = false;
 			handled = true;
 			res.status(500).send({_error: e.toString(), ...res_output});
 		} finally {
-			if (ok)
+			if (ok && !total_failure.fail_early)
 				await dbsession.commitTransaction();
 			else await dbsession.abortTransaction();
 			if (!ok && !handled) res.status(500).send(res_output);
 			}
 	});
-});
+	});
 app.post("/getPeopleFromCity", async (req, res) => {
 	var bodyStr = "";
 	req.on("data", function(chunk) { 
 		bodyStr += chunk.toString();
 	});
 	req.on("end", async function() {
+		bodyStr = bodyStr
 		let ok = false, handled = false, res_input = null, res_output = null;
+		let jsondec = JSON.parse(bodyStr);
 			dbsession.startTransaction();
+		let total_failure = {fail_early: false, action_handled_response: false};
 		try {
-			let jsondec = JSON.parse(bodyStr);
 			res_input = City.call(_, jsondec);
 			res_output = {
-				'person': ArrayType(Person),
+				'person': null /* ArrayType(Person) */,
 			};
 
-			if (await action_getPeopleFromCity_0(res, req, res_output, res_input) &&
+			if (await action_getPeopleFromCity_0(res, req, res_output, res_input, total_failure) &&
 			    true) {
 				res.send(await process_getPeopleFromCity(res_input, res_output));
 				ok = true;
@@ -116,18 +122,19 @@ app.post("/getPeopleFromCity", async (req, res) => {
 			else {
 				ok = false;
 			}
+			handled = total_failure.action_handled_response;
 		} catch(e) {
 			ok = false;
 			handled = true;
 			res.status(500).send({_error: e.toString(), ...res_output});
 		} finally {
-			if (ok)
+			if (ok && !total_failure.fail_early)
 				await dbsession.commitTransaction();
 			else await dbsession.abortTransaction();
 			if (!ok && !handled) res.status(500).send(res_output);
 			}
 	});
-});
+	});
 MongoClient.connect(config.mongo_addr, {useNewUrlParser: true}, (err, client) => {
 	if (err) return console.log(err);
 	dbsession = client.startSession();

@@ -1,7 +1,11 @@
 import Library/Data/IO/Pen: 'pPen'.
+import Library/Data/Set/HashSet: 'HashSet'.
 
-var errPen is pPen for: (File special: 'stderr').
-var outPen is pPen for: (File new: 'out.js', open: 'w+').
+File new: 'timestamps.ctr', exists ifTrue: {
+  import timestamps: { data => 'timestamps'. }.
+} ifFalse: {
+  timestamps is Map new.
+}.
 
 var type is Object cnew: {
   on: 'new' do: {}.
@@ -35,7 +39,7 @@ var type is Object cnew: {
           var structureId is my type getOrCreateStructure: defn.
           my type register: my name as: structureId.
           Reflect addGlobalVariable: my name.
-          type is Type cnew: { structureId => structureId. underlayingJSType => Nil. } named: my name.
+          type is Type cnew: { structureId => structureId. underlayingJSType => Nil. returns => False. } named: my name.
           my type setType: my name to: type.
           Reflect set: my name to: type.
         }.
@@ -132,6 +136,7 @@ var Type is Object cnew: {
       on: 'default:' do: {:def default => def. }.
       on: 'default?' do: { ^my default isNil not. }.
       on: 'default!' do: { ^my default. }.
+      on: 'jsdefault' do: { ^my default or: 'null'. }.
       on: 'default' do: { ^my default or: my ftype _underlayingJSType, or: my ftype. }.
       on: 'type' do: { ^'NameTypePair'. }.
       on: 'applyAll:' do: {:x default: x head. }.
@@ -148,6 +153,7 @@ var Type is Object cnew: {
 
 var ArrayType is Type cnew: {
   typemap => Map new.
+  returns => False.
   on: 'getOrCreate:' do: {:inner
     var instance is my typemap at: inner.
     instance isNil ifTrue: {
@@ -171,21 +177,25 @@ var ArrayType is Type cnew: {
 }.
 
 var int is Type cnew: {
+  returns => False.
   underlayingJSType => 'Number'.
   native?: True.
 } named: 'int'.
 
 var string is Type cnew: {
+  returns => False.
   underlayingJSType => 'String'.
   native?: True.
 } named: 'string'.
 
 var double is Type cnew: {
+  returns => False.
   underlayingJSType => 'Number'.
   native?: True.
 } named: 'double'.
 
 var boolean is Type cnew: {
+  returns => False.
   underlayingJSType => 'Boolean'.
   native?: True.
 } named: 'boolean'.
@@ -198,6 +208,7 @@ var enum is Object cnew: {
     ty isNil ifTrue: {
       var name is 'enum' + my choicemap count.
       ty is Type cnew: {
+        returns => False.
         choices => choices.
         underlayingJSType => name upper1st.
 
@@ -219,14 +230,36 @@ type register: 'boolean' as: boolean.
 
 ###################################  Request ###################################
 var Specification is Object cnew: {
+  mode => 'post'.
+  on: 'type' do: { ^'Specification'. }.
   on: 'toString' do: { ^'<Spec: ${{type miniPrintStructureEx: my fields}}$>'. }.
+  on: 'mode:' do: {:md mode => md. }.
+  on: 'mode' do: { ^my mode. }.
   on: 'fields' do: { ^my fields. }.
 }.
 var RequestSpecification is Specification cnew: {
-
+  decoder => 'JSON.parse'.
+  on: 'decoder:' do: {:dec my decoder is dec. }.
+  on: 'decoder!' do: { ^my decoder. }.
+  on: 'decoder' do: {:self
+    ^{:decoder
+      extra-imports add: (decoder split: '.' max: 1, head).
+      const self decoder: decoder.
+      ^const self.
+    }.
+  }.
 }.
 var ResponseSpecification is Specification cnew: {
-
+  encoder => 'JSON.stringify'.
+  on: 'encoder:' do: {:enc my encoder is enc. }.
+  on: 'encoder!' do: { ^my encoder. }.
+  on: 'encoder' do: {:self
+    ^{:encoder
+      extra-imports add: (encoder split: '.' max: 1, head).
+      const self encoder: encoder.
+      ^const self.
+    }.
+  }.
 }.
 var ActionSpecification is Specification cnew: {
   on: 'toString' do: { ^'<ActionSpec: %L>' % [my comments fmap: \:x '"%s"' % [x]]. }.
@@ -243,6 +276,7 @@ var BeforeSpecification is Specification cnew: {
 var Request is Object cnew: {
   on: 'applyAll:' do: {:args
     ^RequestSpecification cnew: {
+      decoder => 'JSON.parse'.
       fields => (type compileStructure: args).
     }.
   }.
@@ -287,17 +321,19 @@ var Before is Object cnew: {
 #################################### action ####################################
 var endpoints is Map new.
 var actions is Map new.
+var extra-imports is HashSet new.
 
 var EndpointSpec is Object cnew: {
   on: 'create:withRequest:andResponse:andBefore:' do: {:name:request:response:before
     ^cnew: {
+      mode => api endpointType.
       request => request.
       response => response.
       before => before.
       name => name.
     }.
   }.
-  genAccessors: ['request', 'response', 'before'].
+  genAccessors: ['request', 'response', 'before', 'mode'].
   on: 'each:' do: {:blk
     my request isNil ifFalse: {
       blk applyTo: 'Request' and: my request.
@@ -310,13 +346,14 @@ var EndpointSpec is Object cnew: {
     }.
   }.
   on: 'toString' do: {
-    ^'<Endpoint "%s" req: %s, resp: %s, bef: %s>' % [my name, my request, my response, my before].
+    ^'<%s Endpoint "%s" req: %s, resp: %s, bef: %s>' % [my mode, my name, my request, my response, my before].
   }.
 }.
 
 var ActionSpec is Object cnew: {
   on: 'create:withRequest:andResponse:andBefore:andAction:' do: {:name:request:response:before:action
     ^cnew: {
+      mode => 'post'.
       request => request.
       response => response.
       before => before.
@@ -324,7 +361,7 @@ var ActionSpec is Object cnew: {
       name => name.
     }.
   }.
-  genAccessors: ['request', 'response', 'action', 'before'].
+  genAccessors: ['request', 'response', 'action', 'before', 'mode'].
   on: 'each:' do: {:blk
     my request isNil ifFalse: {
       blk applyTo: 'Request' and: my request.
@@ -340,7 +377,7 @@ var ActionSpec is Object cnew: {
     }.
   }.
   on: 'toString' do: {
-    ^'<Action "%s" req: %s, resp: %s, bef: %s, act: %s>' % [my name, my request, my response, my before, my action].
+    ^'<%s Action "%s" req: %s, resp: %s, bef: %s, act: %s>' % [my mode, my name, my request, my response, my before, my action].
   }.
 }.
 
@@ -392,6 +429,8 @@ var action is Object cnew: {
     ^Object cnew: {
       name => name.
       actions => actions.
+      pure => False.
+      on: 'pure' do: { my pure is True. }.
       on: 'applyAll:' do: {:args
         var req is Nil.
         var res is Nil.
@@ -419,14 +458,14 @@ var action is Object cnew: {
         act isNil ifTrue: {
           errPen red writeln: 'action rule ${{my name}}$ contains no `Action` field', resetColor.
         }.
-        my actions put: (
-          ActionSpec
+        var spec is ActionSpec
             create: my name
             withRequest: req
             andResponse: res
             andBefore: bef
-            andAction: act
-        ) at: my name.
+            andAction: act,
+            mode: (my pure either: 'get' or: 'post').
+        my actions put: spec at: my name.
       }.
     }.
   }.
@@ -456,12 +495,14 @@ var model is type cnew: {
 }.
 
 var reference is Type cnew: {
+  returns => False.
   on: 'applyAll:' do: {:ex
     ^ReferenceType getOrCreate: ex head.
   }.
 } named: 'reference'.
 
 var ReferenceType is Type cnew: {
+  returns => False.
   typemap => Map new.
   on: 'getOrCreate:' do: {:inner
     var instance is my typemap at: inner.
@@ -493,12 +534,45 @@ model register: 'reference' as: reference.
 ################################ generate api ##################################
 
 var api is Object cnew: {
+  ignoreRequests => False.
+  ignReqId => 0.
   loglevel => \none. # debug, info, warn, none
   endpointType => 'get'.
-  on: 'postEndpoints' do: { endpointType => 'post'. }.
-  on: 'getEndpoints' do: { endpointType => 'get'. }.
-  on: 'endpointType' do: { ^my endpointType. }.
+  outfile => 'out.js'.
+  on: 'outputFile:' do: {:n
+    my ignoreRequests ifTrue: { ^me. }.
+    outfile => n.
+  }.
+  on: 'openOutputFile' do: {
+    my ignoreRequests ifTrue: { ^File special: 'stderr'. }.
+    ^File new: my outfile, open: 'w+'.
+  }.
+  on: 'ignoreRequests' do: {
+    my ignoreRequests ifTrue: {
+      ^Nil.
+    }.
+    ignoreRequests => True.
+    my ignReqId +=: 1.
+    ^my ignReqId.
+  }.
+  on: 'enableRequests:' do: {:ig
+    my ignReqId = ig ifTrue: {
+      ignoreRequests => False.
+    }.
+  }.
+  on: 'postEndpoints' do: {
+    my ignoreRequests ifTrue: { ^Nil. }.
+    endpointType => 'post'.
+  }.
+  on: 'getEndpoints' do: {
+    my ignoreRequests ifTrue: { ^Nil. }.
+    endpointType => 'get'.
+  }.
+  on: 'endpointType' do: {
+    ^my endpointType.
+  }.
   on: 'log:' do: {:level
+    my ignoreRequests ifTrue: { ^Nil. }.
     loglevel => level.
   }.
   on: 'log' do: { ^my loglevel. }.
@@ -511,9 +585,10 @@ var api is Object cnew: {
     ^s.
   }.
   on: 'toString' do: {
-    ^'Actions:\n' + actions + '\n' + ('-' * 80) + '\n' + 'Endpoints:\n' + endpoints + '\n'.
+    ^'Actions:\n' + const actions + '\n' + ('-' * 80) + '\n' + 'Endpoints:\n' + const endpoints + '\n'.
   }.
   on: 'describe' do: {
+    my ignoreRequests ifTrue: { ^Nil. }.
     outPen writeln: 'These types are defined:'.
     type allInstanceTypes each: {:k:v
       outPen writeln: '\t$$k - $$v ${{type miniPrintStructure: v}}$'.
@@ -535,6 +610,7 @@ var api is Object cnew: {
     }.
   }.
   on: 'writeJsonFor:' do: {:reqps
+    my ignoreRequests ifTrue: { ^Nil. }.
     reqps each_v: {:req
       var point is endpoints @ req or: actions @ req.
       Pen writeln: '$$req = {'.
@@ -546,11 +622,28 @@ var api is Object cnew: {
       Pen writeln: '}'.
     }.
   }.
+  on: 'listIncomplete' do: {
+    my ignoreRequests ifTrue: { ^Nil. }.
+    var s is Array new.
+    const timestamps each: {:path:time
+      time >=: (File new: path, stat @ 'st_mtime'), ifTrue: {
+        s push: path.
+      }.
+    }.
+    ^s.
+  }.
   on: 'generate' do: {
+    my ignoreRequests ifTrue: { ^Nil. }.
     # generate js...?
     # express + toplevel boilerplate
     outPen writeln: 'var express = require("express");\nvar app = express();\n'.
     outPen writeln: 'db = null;\ndbsession = null;\nconst config = require("./config.js");\nconst MongoClient = require("mongodb").MongoClient;\n'.
+    extra-imports count !=: 0, ifTrue: {
+      extra-imports each_v: {:imp
+        outPen writeln: 'const $$imp = require("${{imp}}$");'.
+      }.
+    }.
+
     endpoints each: {:k
       outPen writeln: 'const process_${{k ~ 's/\\W/_/g'}}$ = require("./endpoints/${{k ~ 's/\\W/_/g'}}$.js");'.
     }.
@@ -575,7 +668,7 @@ var api is Object cnew: {
         typenames push: k.
         typePen writeln: 'let $$k = {'.
         var struct is type getStructure: v.
-        var sprops is Array < 'call' ; 'staticProperties'.
+        var sprops is Array < 'call' ; 'staticProperties' ; 'forEach'.
         struct each: {:k:v
           v pure? ifTrue: {
             sprops push: k.
@@ -588,7 +681,12 @@ var api is Object cnew: {
         typePen writeln: '\t\tfor (property in ${{k}}$)'.
         typePen writeln: '\t\t\tif ((!${{k}}$.staticProperties.includes(property)) && ${{k}}$.hasOwnProperty(property))'.
         typePen writeln: '\t\t\t\tobj[property] = ${{k}}$[property](value[property]);'.
-        typePen writeln: '\t\treturn obj;\n\t}'.
+        typePen writeln: '\t\treturn obj;\n\t},'.
+        typePen writeln: '\tforEach(self, callback) {'.
+        typePen writeln: '\t\tfor (property in ${{k}}$)'.
+        typePen writeln: '\t\t\tif ((!${{k}}$.staticProperties.includes(property)) && self.hasOwnProperty(property))'.
+        typePen writeln: '\t\t\t\tcallback(property, self[property], self);'.
+        typePen writeln: '\t}'.
         typePen writeln: '};'.
         typePen writeln: 'module.exports["${{k}}$"] = $$k'.
         typePen brk.
@@ -622,6 +720,7 @@ var api is Object cnew: {
     f open: 'w+'.
     var modelPen is pPen for: f.
     modelPen writeln: 'const {%:L} = require("./types.js");' % [', ', typenames].
+    modelPen writeln: 'const { ObjectId } = require("mongodb");'.
     modelPen writeln: 'module.exports = {};'.
     # var typenames is Array < 'ArrayType'.
     model allInstanceTypes each: {:k:v
@@ -629,7 +728,7 @@ var api is Object cnew: {
         modelnames push: k.
         modelPen writeln: 'let $$k = {'.
         var struct is model getStructure: v.
-        var sprops is Array < 'call' ; 'db' ; 'staticProperties'.
+        var sprops is Array < 'call' ; 'db' ; 'findById' ; 'staticProperties' ; 'forEach'.
         struct each: {:k:v
           v pure? ifTrue: {
             sprops push: k.
@@ -648,8 +747,14 @@ var api is Object cnew: {
         modelPen writeln: '\t\t\tif ((!${{k}}$.staticProperties.includes(property)) && ${{k}}$.hasOwnProperty(property))'.
         modelPen writeln: '\t\t\t\tobj[property] = ${{k}}$[property](value[property]);'.
         modelPen writeln: '\t\treturn obj;\n\t},'.
+        modelPen writeln: '\tforEach(self, callback) {'.
+        modelPen writeln: '\t\tfor (property in ${{k}}$)'.
+        modelPen writeln: '\t\t\tif ((!${{k}}$.staticProperties.includes(property)) && self.hasOwnProperty(property))'.
+        modelPen writeln: '\t\t\t\tcallback(property, self[property], self);'.
+        modelPen writeln: '\t},'.
         # database access methods
         modelPen writeln: '\tdb() { return db.collection("${{k}}$") },'.
+        modelPen writeln: '\tasync findById(id) {\n\t\treturn await db.collection("${{k}}$").findOne({\n\t\t\t$and:\n\t\t\t\t[\n\t\t\t\t\t{_id: new ObjectId(id)},\n\t\t\t\t\t...(Array.prototype.slice.call(arguments, 1))\n\t\t\t\t]\n\t\t});\n\t},'.
         modelPen writeln: '};'.
         modelPen writeln: 'module.exports["${{k}}$"] = $$k'.
         modelPen brk.
@@ -702,20 +807,22 @@ var api is Object cnew: {
       outPen writeln: 'const $$funcname = require("./utilities/${{funcname}}$.js");'.
     }.
     outPen brk.
-    outPen writeln: 'function getOrFail(type, obj, prop) {\n\t' +
+    outPen writeln: 'function getOrFail(type, obj, prop, _default) {\n\t' +
                  'let oprop = obj[prop];\n\t' +
-                 'if (typeof(oprop) === "undefined" || oprop === null) {\n\t' +
+                 'if ((typeof(oprop) === "undefined" || oprop === null) && !_default) {\n\t' +
                   (api log = \debug either:
                     '\tconsole.log("[DEBUG] nonexistent getOrFail for " + prop + " from " + JSON.stringify(obj));\n\t'
                   or: '') +
                  '\tthrow new Error(`missing argument ${prop}`);\n\t}\n\t' +
+                 'if (typeof(oprop) === "undefined" || oprop === null)\n\t\t' +
+                 'return _default;\n\t' +
                  'oprop = type.call(null, oprop);\n\t' +
-                 'if (typeof(oprop) === "undefined" || oprop === null) {\n\t' +
+                 'if ((typeof(oprop) === "undefined" || oprop === null) && !_default) {\n\t' +
                   (api log = \debug either:
                     '\tconsole.log("[DEBUG] nonexistent getOrFail for " + prop + " from " + JSON.stringify(obj));\n\t'
                   or: '') +
                  '\tthrow new Error(`wrong type for argument ${prop}`);\n\t}\n\t' +
-                 'return oprop;\n}' .
+                 'return (typeof(oprop) === "undefined" || oprop === null) ? _default : oprop;\n}' .
     # then, define the fancy routes for endpoints
     { File new: 'endpoints', mkdir. } catch: {}, run.
     endpoints each: {:route:spec
@@ -755,9 +862,16 @@ var api is Object cnew: {
       }.
 
       var f is File new: 'endpoints/${{route ~ 's/\\W/_/g'}}$.js'.
+      var exists is False.
       f exists ifTrue: {
-        errPen magenta writeln: 'route handler for ${{route}}$ existed at ${{f path}}$, not touching it', resetColor.
-      } ifFalse: {
+        timestamps @ f path < (f stat @ 'st_mtime') ifTrue: {
+          errPen magenta writeln: 'route handler for ${{route}}$ existed at ${{f path}}$ and was modified since creation time, not touching it', resetColor.
+          exists is True.
+        } ifFalse: {
+          errPen green write: 'route handler for ${{route}}$ existed at ${{f path}}$,', red writeln: ' overwriting it', resetColor.
+        }.
+      }.
+      exists ifFalse: {
         f open: 'w+'.
         f write: 'const {%:L} = require("../types.js");\n\n' % [', ', typenames].
         f write: 'const {%:L} = require("../models.js");\n\n' % [', ', modelnames].
@@ -765,8 +879,22 @@ var api is Object cnew: {
                  '\n\nmodule.exports = async function process_${{route ~ 's/\\W/_/g'}}$(res_input, res_output)' +
                  ' {\n\t// TODO: implement\n\treturn res_output;\n}'.
         f close.
+        timestamps put: f stat @ 'st_ctime' at: f path.
       }.
-      api endpointType = 'post' ifTrue: {
+      var decoder is 'JSON.parse'.
+      var buffer is '""'.
+      var bufcat is \:buf:new '${{buf}}$ += ${{new}}$.toString()'.
+      var bufprocess is \:buf buf.
+      spec request isNil ifFalse: {
+        decoder is spec request decoder!.
+        var dec is decoder split: '.' max: 1, head.
+        dec !=: 'JSON', ifTrue: {
+          buffer is '[]'.
+          bufcat is \:buf:new '${{buf}}$ = [...${{buf}}$, ${{new}}$]'.
+          bufprocess is \:buf 'Buffer.concat(${{buf}}$)'.
+        }.
+      }.
+      spec mode = 'post' ifTrue: {
         outPen writeln: 'app.post("/${{route}}$", async (req, res) => {'.
       } ifFalse: {
         outPen writeln: 'app.get("/${{route}}$", async (req, res) => {'.
@@ -774,14 +902,15 @@ var api is Object cnew: {
       api log = \debug ifTrue: {
         outPen writeln: '\tconsole.log("[DEBUG] activity on route ${{route}}$");'.
       }.
-      api endpointType = 'post' ifTrue: {
-        outPen writeln: '\tvar bodyStr = "";'.
+      spec mode = 'post' ifTrue: {
+        outPen writeln: '\tvar bodyStr = ${{buffer}}$;'.
         outPen writeln: '\treq.on("data", function(chunk) { '.
-        outPen writeln: '\t\tbodyStr += chunk.toString();'.
+        outPen writeln: '\t\t${{bufcat applyTo: 'bodyStr' and: 'chunk'}}$;'.
         outPen writeln: '\t});'.
         outPen writeln: '\treq.on("end", async function() {'.
+        outPen writeln: '\t\tbodyStr = ${{bufprocess applyTo: 'bodyStr'}}$'.
         outPen writeln: '\t\tlet ok = false, handled = false, res_input = null, res_output = null;'.
-        outPen writeln: '\t\tlet jsondec = JSON.parse(bodyStr);'.
+        outPen writeln: '\t\tlet jsondec = ${{decoder}}$(bodyStr);'.
       }.
       var fieldsFL is Array new.
       # get the fields
@@ -798,10 +927,10 @@ var api is Object cnew: {
           fields each: {:k:v
             fieldsFL push: [k toString, v ftype].
             fieldsFL push: k toString.
-            api endpointType = 'get' ifTrue: {
-              outPen writeln: '\t\t\t\t\'${{k}}$\': getOrFail(${{v ftype _underlayingJSType or: v ftype}}$, req.params, \'${{k}}$\'),'.
+            spec mode = 'get' ifTrue: {
+              outPen writeln: '\t\t\t\t\'${{k}}$\': getOrFail(${{v ftype _underlayingJSType or: v ftype}}$, req.query, \'${{k}}$\', ${{v jsdefault}}$),'.
             } ifFalse: {
-              outPen writeln: '\t\t\t\t\'${{k}}$\': getOrFail(${{v ftype _underlayingJSType or: v ftype}}$, jsondec, \'${{k}}$\'),'.
+              outPen writeln: '\t\t\t\t\'${{k}}$\': getOrFail(${{v ftype _underlayingJSType or: v ftype}}$, jsondec, \'${{k}}$\', ${{v jsdefault}}$),'.
             }.
           }.
           outPen writeln: '\t\t\t};\n'.
@@ -812,7 +941,7 @@ var api is Object cnew: {
         outPen writeln: '\t\t\tlet failure = {error:null, ok:null};'.
         spec before each: {:func:fn
           fn returns ifTrue: {
-            outPen writeln: '\t\t\tlet ${{fn}}$_${{fn return fname}}$ = {value: null};'.
+            outPen writeln: '\t\t\tlet ${{fn}}$_${{fn return fname}}$ = {set value(val) { res_input["${{fn return fname}}$"] = val; }};'.
           }.
         }.
         outPen write: '\t\t\tif (!('.
@@ -838,7 +967,10 @@ var api is Object cnew: {
           s is Array < ('{' + (s join: ', ') + '}').
           s push: 'failure'.
           fn returns ifTrue: {
-            s push: '${{fn}}$_${{fn return fname}}$'.
+            var ret is fn return.
+            fieldsFL push: [ret fname, ret ftype].
+            fieldsFL push: ret fname.
+            s push: '${{fn}}$_${{ret fname}}$'.
           }.
           outPen write: '%:L' % [', ', s].
           outPen write: ') &&\n\t\t\t    '.
@@ -856,27 +988,20 @@ var api is Object cnew: {
       } ifFalse: {
         var fields is spec response fields.
         fields isA: Type, ifTrue: {
-          outPen writeln: '\t\t\tres_output = ${{fields _underlayingJSType or: fields}}$;'.
+          outPen writeln: '\t\t\tres_output = {} /* ${{fields _underlayingJSType or: fields}}$ */;'.
         } ifFalse: {
           outPen writeln: '\t\t\tres_output = {'.
           fields each: {:k:v
-            outPen writeln: '\t\t\t\t\'${{k}}$\': ${{v ftype _underlayingJSType or: v ftype}}$,'.
+            outPen writeln: '\t\t\t\t\'${{k}}$\': null /* ${{v ftype _underlayingJSType or: v ftype}}$ */,'.
           }.
           outPen writeln: '\t\t\t};\n'.
-        }.
-      }.
-      spec before isNil ifFalse: {
-        spec before each: {:func:fn
-          fn returns ifTrue: {
-            outPen writeln: '\t\t\tres_input["${{fn return fname}}$"] = ${{fn}}$_${{fn return fname}}$.value;'.
-          }.
         }.
       }.
       outPen writeln: '\t\t\tres.send(await process_${{route ~ 's/\\W/_/g'}}$(res_input, res_output));\n\t\t\tok = true;\n'.
       outPen writeln: '\t\t} catch(e) {\n\t\t\tok = false;\n\t\t\thandled = true;\n\t\t\tres.status(500).send({_error: e.toString(), ...res_output});'.
       outPen writeln: '\t\t} finally {\n\t\t\tif (!ok && !handled) res.status(500).send(res_output);\n\t\t\t}'.
       outPen writeln: '\n});'.
-      api endpointType = 'post' ifTrue: {
+      spec mode = 'post' ifTrue: {
         outPen writeln: '\t});'.
       }.
     }.
@@ -917,9 +1042,16 @@ var api is Object cnew: {
       }.
 
       var f is File new: 'endpoints/${{route ~ 's/\\W/_/g'}}$.js'.
+      var exists is False.
       f exists ifTrue: {
-        errPen magenta writeln: 'route handler for ${{route}}$ existed at ${{f path}}$, not touching it', resetColor.
-      } ifFalse: {
+        timestamps @ f path < (f stat @ 'st_mtime') ifTrue: {
+          errPen magenta writeln: 'route handler for ${{route}}$ existed at ${{f path}}$ and was modified since creation time, not touching it', resetColor.
+          exists is True.
+        } ifFalse: {
+          errPen green write: 'route handler for ${{route}}$ existed at ${{f path}}$,', red writeln: ' overwriting it', resetColor.
+        }.
+      }.
+      exists ifFalse: {
         f open: 'w+'.
         f write: 'const {%:L} = require("../types.js");\n\n' % [', ', typenames].
         f write: 'const {%:L} = require("../models.js");\n\n' % [', ', modelnames].
@@ -927,6 +1059,7 @@ var api is Object cnew: {
                  'module.exports = async function process_${{route ~ 's/\\W/_/g'}}$(res_input, res_output)' +
                  ' {\n\t// TODO: implement\n\treturn res_output;\n}'.
         f close.
+        timestamps put: f stat @ 'st_ctime' at: f path.
       }.
       spec action each: {:idx:action
         var f is File new: 'actions/${{route ~ 's/\\W/_/g'}}$-action${{idx}}$.js'.
@@ -943,24 +1076,48 @@ var api is Object cnew: {
           f close.
         }.
       }.
-      outPen writeln: 'app.post("/${{route}}$", async (req, res) => {'.
+      spec mode = 'post' ifTrue: {
+        outPen writeln: 'app.post("/${{route}}$", async (req, res) => {'.
+      } ifFalse: {
+        outPen writeln: 'app.get("/${{route}}$", async (req, res) => {'.
+      }.
       api log = \debug ifTrue: {
         outPen writeln: '\tconsole.log("[DEBUG] activity on ${{route}}$");'.
       }.
+      var decoder is 'JSON.parse'.
+      var buffer is '""'.
+      var bufcat is \:buf:new '${{buf}}$ += ${{new}}$.toString()'.
+      var bufprocess is \:buf buf.
+      spec request isNil ifFalse: {
+        decoder is spec request decoder!.
+        var dec is decoder split: '.' max: 1, head.
+        dec !=: 'JSON', ifTrue: {
+          buffer is '[]'.
+          bufcat is \:buf:new '${{buf}}$ = [...${{buf}}$, ${{new}}$]'.
+          bufprocess is \:buf 'Buffer.concat(${{buf}}$)'.
+        }.
+      }.
+
       var fieldsFL is Array new.
       # get the fields
-      outPen writeln: '\tvar bodyStr = "";'.
-      outPen writeln: '\treq.on("data", function(chunk) { '.
-      outPen writeln: '\t\tbodyStr += chunk.toString();'.
-      outPen writeln: '\t});'.
-      outPen writeln: '\treq.on("end", async function() {'.
-      outPen writeln: '\t\tlet ok = false, handled = false, res_input = null, res_output = null;'.
+      spec mode = 'post' ifTrue: {
+        outPen writeln: '\tvar bodyStr = ${{buffer}}$;'.
+        outPen writeln: '\treq.on("data", function(chunk) { '.
+        outPen writeln: '\t\t${{bufcat applyTo: 'bodyStr' and: 'chunk'}}$;'.
+        outPen writeln: '\t});'.
+        outPen writeln: '\treq.on("end", async function() {'.
+        outPen writeln: '\t\tbodyStr = ${{bufprocess applyTo: 'bodyStr'}}$'.
+        outPen writeln: '\t\tlet ok = false, handled = false, res_input = null, res_output = null;'.
+        outPen writeln: '\t\tlet jsondec = ${{decoder}}$(bodyStr);'.
+      }.
       (spec request isNil either: True or: { ^spec request fields isNil. }) ifTrue: {
         outPen writeln: '\t\tlet res_input = {};'.
       } ifFalse: {
-        outPen writeln: '\t\t\tdbsession.startTransaction();'.
+        spec mode = 'post' ifTrue: {
+          outPen writeln: '\t\t\tdbsession.startTransaction();'.
+        }.
+        outPen writeln: '\t\tlet total_failure = {fail_early: false, action_handled_response: false};'.
         outPen writeln: '\t\ttry {'.
-        outPen writeln: '\t\t\tlet jsondec = JSON.parse(bodyStr);'.
         var fields is spec request fields.
         fields isA: Type, ifTrue: {
           outPen writeln: '\t\t\tres_input = ${{fields _underlayingJSType or: fields}}$.call(_, jsondec);'.
@@ -969,7 +1126,11 @@ var api is Object cnew: {
           spec request fields each: {:k:v
             fieldsFL push: [k toString, v ftype].
             fieldsFL push: k toString.
-            outPen writeln: '\t\t\t\t\'${{k}}$\': getOrFail(${{v ftype _underlayingJSType or: v ftype}}$, jsondec, \'${{k}}$\'),'.
+            spec mode = 'get' ifTrue: {
+              outPen writeln: '\t\t\t\t\'${{k}}$\': getOrFail(${{v ftype _underlayingJSType or: v ftype}}$, req.query, \'${{k}}$\', ${{v jsdefault}}$),'.
+            } ifFalse: {
+              outPen writeln: '\t\t\t\t\'${{k}}$\': getOrFail(${{v ftype _underlayingJSType or: v ftype}}$, jsondec, \'${{k}}$\', ${{v jsdefault}}$),'.
+            }.
           }.
           outPen writeln: '\t\t\t};\n'.
         }.
@@ -978,7 +1139,10 @@ var api is Object cnew: {
         outPen writeln: '\t\t\tlet failure = {error:null, ok:null};'.
         spec before each: {:func:fn
           fn returns ifTrue: {
-            outPen writeln: '\t\t\tlet ${{fn}}$_${{fn return fname}}$ = {value: null};'.
+            var ret is fn return.
+            fieldsFL push: [ret fname, ret ftype].
+            fieldsFL push: ret fname.
+            outPen writeln: '\t\t\tlet ${{fn}}$_${{fn return fname}}$ = {set value(val) { res_input["${{fn return fname}}$"] = val; }};'.
           }.
         }.
         outPen write: '\t\t\tif (!('.
@@ -1021,33 +1185,34 @@ var api is Object cnew: {
       } ifFalse: {
         var fields is spec response fields.
         fields isA: Type, ifTrue: {
-          outPen writeln: '\t\t\tres_output = ${{fields _underlayingJSType or: v}}$;'.
+          outPen writeln: '\t\t\tres_output = {} /* ${{fields _underlayingJSType or: fields}}$ */;'.
         } ifFalse: {
           outPen writeln: '\t\t\tres_output = {'.
           spec response fields each: {:k:v
-            outPen writeln: '\t\t\t\t\'${{k}}$\': ${{v ftype _underlayingJSType or: v ftype}}$,'.
+            outPen writeln: '\t\t\t\t\'${{k}}$\': null /* ${{v ftype _underlayingJSType or: v ftype}}$ */,'.
           }.
           outPen writeln: '\t\t\t};\n'.
         }.
       }.
-      spec before isNil ifFalse: {
-        spec before each: {:func:fn
-          fn returns ifTrue: {
-            outPen writeln: '\t\t\tres_input["${{fn return fname}}$"] = ${{fn}}$_${{fn return fname}}$.value;'.
-          }.
-        }.
-      }.
       outPen write: '\t\t\tif ('.
       spec action each: {:idx:action
-        outPen write: 'await action_${{route ~ 's/\\W/_/g'}}$_${{idx}}$(res, req, res_output, res_input) &&\n\t\t\t    '.
+        outPen write: 'await action_${{route ~ 's/\\W/_/g'}}$_${{idx}}$(res, req, res_output, res_input, total_failure) &&\n\t\t\t    '.
       }.
       outPen writeln: 'true) {'.
       outPen writeln: '\t\t\t\tres.send(await process_${{route ~ 's/\\W/_/g'}}$(res_input, res_output));'.
       outPen writeln: '\t\t\t\tok = true;\n\t\t\t}'.
       outPen writeln: '\t\t\telse {\n\t\t\t\tok = false;\n\t\t\t}'.
+      outPen writeln: '\t\t\thandled = total_failure.action_handled_response;'.
       outPen writeln: '\t\t} catch(e) {\n\t\t\tok = false;\n\t\t\thandled = true;\n\t\t\tres.status(500).send({_error: e.toString(), ...res_output});'.
-      outPen writeln: '\t\t} finally {\n\t\t\tif (ok)\n\t\t\t\tawait dbsession.commitTransaction();\n\t\t\telse await dbsession.abortTransaction();\n\t\t\tif (!ok && !handled) res.status(500).send(res_output);\n\t\t\t}'.
-      outPen writeln: '\t});\n});'.
+      outPen writeln: '\t\t} finally {'.
+      spec mode = 'post' ifTrue: {
+        outPen writeln: '\t\t\tif (ok && !total_failure.fail_early)\n\t\t\t\tawait dbsession.commitTransaction();\n\t\t\telse await dbsession.abortTransaction();'.
+      }.
+      outPen writeln: '\t\t\tif (!ok && !handled) res.status(500).send(res_output);\n\t\t\t}'.
+      outPen writeln: '\t});'.
+      spec mode = 'post' ifTrue: {
+        outPen writeln: '\t});'.
+      }.
     }.
     outPen writeln: 'MongoClient.connect(config.mongo_addr, {useNewUrlParser: true}, (err, client) => {'.
     outPen writeln: '\tif (err) return console.log(err);'.
@@ -1061,5 +1226,45 @@ var api is Object cnew: {
     cfg exists ifFalse: {
       cfg write: 'module.exports = {\n\tport: 8080,\n\tmongo_addr: "mongodb://127.0.0.1",\n\tdatabase: "fancy_db_name"\n};'.
     }.
+
+    # record timestamps
+    File new: 'timestamps.ctr', write: 'var data is ' + timestamps + '.'.
   }.
 }.
+
+var API is Object cnew: { # api interface
+  req => Nil.
+
+  on: 'new' do: {}.
+  on: 'cnew:' do: {}.
+
+  on: 'toString' do: {
+    ^'API'.
+  }.
+  on: 'type' do: {
+    ^'APIInterface'.
+  }.
+
+  on: 'load:' do: {:apiname
+    (apiname = my req | my req isNil) ifTrue: {
+      var id is const api ignoreRequests.
+      import respondTo: apiname.
+      const api enableRequests: id.
+      req => apiname.
+    } ifFalse: {
+      thisBlock error: 'api spec ${{my apiname}}$ already loaded'.
+    }.
+  }.
+  on: 'incompletePoints' do: {
+    ^const api listIncomplete.
+  }.
+  on: 'writeJsonFor:' do: {:points
+    const api writeJsonFor: points.
+  }.
+  on: 'displayModel:' do: {:m
+    ^const model miniPrintStructureEx: (const model getStructure: (const model allInstanceTypes at: m)).
+  }.
+}.
+
+var errPen is pPen for: (File special: 'stderr').
+var outPen is pPen for: api openOutputFile.

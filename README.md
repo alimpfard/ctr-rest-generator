@@ -14,7 +14,7 @@ import generator: \*.
 api generate | api describe
 ```
 
-type declaration: 
+type declaration:
 
 ```
 'type' name '['
@@ -51,12 +51,12 @@ api point spec:
 
 ```
 point_type name '['
-    { 'Request' '[' 
+    { 'Request' '['
         type name,
         type name,
         ...
     ']'},
-    { 'Response' '[' 
+    { 'Response' '['
         type name,
         type name,
         ...
@@ -66,6 +66,10 @@ point_type name '['
 ']'
 ```
 
+`Requests` specifications can optionally have a custom decoder (JSON is otherwise used),
+similarly, `Response` specs can have a custom encoder (JSON is the default) like so:
+
+`Request [ name-type-pairs... ] decoder ['custom.decoder']`
 
 api point specifications are of two types:
 

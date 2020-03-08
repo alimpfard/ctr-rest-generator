@@ -1,6 +1,6 @@
 const {ArrayType, Enum0} = require("../types.js");
 
-const {City, Person} = require("../models.js");
+const {Person, City} = require("../models.js");
 
 /**
  * res_output
