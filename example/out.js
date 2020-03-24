@@ -14,18 +14,18 @@ const process_getPeopleFromCity = require("./endpoints/getPeopleFromCity.js");
 const action_getPeopleFromCity_0 = require("./actions/getPeopleFromCity-action0.js");
 
 const {ArrayType, Enum0} = require("./types.js");
-const {Person, City} = require("./models.js");
+const {City, Person} = require("./models.js");
 const testUserExists = require("./utilities/testUserExists.js");
 
 function getOrFail(type, obj, prop, _default) {
 	let oprop = obj[prop];
-	if ((typeof(oprop) === "undefined" || oprop === null) && !_default) {
+	if ((typeof(oprop) === "undefined" || oprop === null) && typeof(_default) === "undefined") {
 		throw new Error(`missing argument ${prop}`);
 	}
 	if (typeof(oprop) === "undefined" || oprop === null)
 		return _default;
 	oprop = type.call(null, oprop);
-	if ((typeof(oprop) === "undefined" || oprop === null) && !_default) {
+	if ((typeof(oprop) === "undefined" || oprop === null) && typeof(_default) === "undefined") {
 		throw new Error(`wrong type for argument ${prop}`);
 	}
 	return (typeof(oprop) === "undefined" || oprop === null) ? _default : oprop;
@@ -62,8 +62,8 @@ app.post("/deletePerson", async (req, res) => {
 		let total_failure = {fail_early: false, action_handled_response: false};
 		try {
 			res_input = {
-				'personId': getOrFail(Number, jsondec, 'personId', null),
-				'method': getOrFail(Enum0, jsondec, 'method', null),
+				'personId': getOrFail(Number, jsondec, 'personId', undefined),
+				'method': getOrFail(Enum0, jsondec, 'method', undefined),
 			};
 
 			let failure = {error:null, ok:null};

@@ -4,7 +4,7 @@ import Library/Data/Set/HashSet: 'HashSet'.
 File new: 'timestamps.ctr', exists ifTrue: {
   import timestamps: { data => 'timestamps'. }.
 } ifFalse: {
-  timestamps is Map new.
+  var timestamps is Map new.
 }.
 
 var type is Object cnew: {
@@ -83,6 +83,7 @@ var type is Object cnew: {
   }.
   on: 'miniPrintStructure:' do: {:id
     var compiled is my structures at: id.
+    errPen writeln: id.
     compiled isNil ifTrue: {
       ^'{}'.
     }.
@@ -136,7 +137,7 @@ var Type is Object cnew: {
       on: 'default:' do: {:def default => def. }.
       on: 'default?' do: { ^my default isNil not. }.
       on: 'default!' do: { ^my default. }.
-      on: 'jsdefault' do: { ^my default or: 'null'. }.
+      on: 'jsdefault' do: { ^my default or: 'undefined'. }.
       on: 'default' do: { ^my default or: my ftype _underlayingJSType, or: my ftype. }.
       on: 'type' do: { ^'NameTypePair'. }.
       on: 'applyAll:' do: {:x default: x head. }.
@@ -239,12 +240,25 @@ var Specification is Object cnew: {
 }.
 var RequestSpecification is Specification cnew: {
   decoder => 'JSON.parse'.
+  decoderArgs => [].
   on: 'decoder:' do: {:dec my decoder is dec. }.
   on: 'decoder!' do: { ^my decoder. }.
+  on: 'decoderArgs:' do: {:args my decoderArgs is args. }.
+  on: 'decoderArgs!' do: {
+    var res is '%:L' % [', ', my decoderArgs fmap: \:&x x = '<self>' either: 'req' or: 'req.' + x].
+    res length > 0 ifTrue: { ^', ' + res. }.
+    ^res.
+  }.
   on: 'decoder' do: {:self
-    ^{:decoder
-      extra-imports add: (decoder split: '.' max: 1, head).
+    ^{:decoder:*args
+      var decpath is False.
+      decoder startsWith: './', ifTrue: {
+        decoder is decoder skip: 2.
+        decpath is True.
+      }.
+      extra-imports add: (decpath either: './' or: '') + (decoder split: '.' max: 1, head).
       const self decoder: decoder.
+      const self decoderArgs: args.
       ^const self.
     }.
   }.
@@ -267,6 +281,15 @@ var ActionSpecification is Specification cnew: {
     my comments each: blk.
   }.
 }.
+
+var RedirectSpecification is Specification cnew: {
+  on: 'toString' do: { ^'<RedirectSpec: \'%s\' -> \'%s\'>' % [my from, my to]. }.
+  on: 'each:' do: {:blk
+    blk[my from].
+    blk[my to].
+  }.
+}.
+
 var BeforeSpecification is Specification cnew: {
   on: 'toString' do: { ^'<BeforeSpecification with %d subscribers>' % [my functions count]. }.
   on: 'each:' do: {:blk
@@ -277,12 +300,15 @@ var Request is Object cnew: {
   on: 'applyAll:' do: {:args
     ^RequestSpecification cnew: {
       decoder => 'JSON.parse'.
+      decoderArgs => [].
       fields => (type compileStructure: args).
     }.
   }.
   on: 'respondTo:' do: {:name
     var ty is Reflect getObject: name.
     ^RequestSpecification cnew: {
+      decoder => 'JSON.parse'.
+      decoderArgs => [].
       fields => ty. #type getStructure: ty structureId, or: (model getStructure: ty structureId).
     }.
   }.
@@ -310,6 +336,12 @@ var Action is Object cnew: {
   on: 'process:' do: {:arg ^me applyAll: [arg]. }.
 }.
 
+var Redirect is Object cnew: {
+  on: 'from:to:' do: {:from:to
+    ^RedirectSpecification cnew: { from => from. to => to. }.
+  }.
+}.
+
 var Before is Object cnew: {
   on: 'applyAll:' do: {:args
     ^BeforeSpecification cnew: {
@@ -319,8 +351,10 @@ var Before is Object cnew: {
 }.
 ################################### endpoint ###################################
 #################################### action ####################################
+################################### redirect ###################################
 var endpoints is Map new.
 var actions is Map new.
+var redirects is Map new.
 var extra-imports is HashSet new.
 
 var EndpointSpec is Object cnew: {
@@ -379,6 +413,17 @@ var ActionSpec is Object cnew: {
   on: 'toString' do: {
     ^'<%s Action "%s" req: %s, resp: %s, bef: %s, act: %s>' % [my mode, my name, my request, my response, my before, my action].
   }.
+}.
+
+var RedirectSpec is Object cnew: {
+  on: 'createFrom:to:' do: {:from:to
+    ^cnew: {
+        from => from.
+        to => to.
+    }.
+  }.
+  genAccessors: ['from', 'to'].
+  on: 'toString' do: { ^'<Redirect \'%s\' -> \'%s\'>' % [my from, my to]. }.
 }.
 
 var endpoint is Object cnew: {
@@ -468,6 +513,17 @@ var action is Object cnew: {
         my actions put: spec at: my name.
       }.
     }.
+  }.
+}.
+
+var redirect is Object cnew: {
+  on: 'from:to:' do: {:from:to
+    redirects contains: from, ifTrue: {
+      errPen red writeln: 'a redirect from \'${{from}}$\' already exists (${{redirects @ from}}$)', resetColor.
+      ^Nil.
+    }.
+    var spec is RedirectSpec createFrom: from to: to.
+    redirects put: spec at: from.
   }.
 }.
 
@@ -596,8 +652,11 @@ var api is Object cnew: {
     model allInstanceTypes each: {:k:v
       outPen writeln: '\t$$k - $$v ${{model miniPrintStructure: v}}$'.
     }.
-    outPen write: 'The API has ${{actions count}}$ Actions'.
+    outPen write: 'The API has ${{redirects count}}$ redirects, ${{actions count}}$ Actions'.
     outPen writeln: ', and ${{endpoints count}}$ Endpoints:'.
+    redirects each: {:from:spec
+      outPen writeln: '\tredirect from: \'${{from}}$\' to: \'${{spec to}}$\''.
+    }.
     actions each: {:name:spec
       outPen writeln: '\taction $$name ['.
       outPen writeln: '\t\t${{prettyPrintSpec: spec}}$'.
@@ -611,8 +670,11 @@ var api is Object cnew: {
   }.
   on: 'writeJsonFor:' do: {:reqps
     my ignoreRequests ifTrue: { ^Nil. }.
+    var getPoint is {:self:&p
+      ^endpoints @ p or: actions @ p, or: { ^self[redirects at: p, to]. }.
+    }.
     reqps each_v: {:req
-      var point is endpoints @ req or: actions @ req.
+      var point is getPoint[req].
       Pen writeln: '$$req = {'.
       point request isNil ifFalse: {
         point request fields each: {:k:v
@@ -640,7 +702,7 @@ var api is Object cnew: {
     outPen writeln: 'db = null;\ndbsession = null;\nconst config = require("./config.js");\nconst MongoClient = require("mongodb").MongoClient;\n'.
     extra-imports count !=: 0, ifTrue: {
       extra-imports each_v: {:imp
-        outPen writeln: 'const $$imp = require("${{imp}}$");'.
+        outPen writeln: 'const ${{imp replace: './' with: ''}}$ = require("${{imp}}$");'.
       }.
     }.
 
@@ -809,7 +871,7 @@ var api is Object cnew: {
     outPen brk.
     outPen writeln: 'function getOrFail(type, obj, prop, _default) {\n\t' +
                  'let oprop = obj[prop];\n\t' +
-                 'if ((typeof(oprop) === "undefined" || oprop === null) && !_default) {\n\t' +
+                 'if ((typeof(oprop) === "undefined" || oprop === null) && typeof(_default) === "undefined") {\n\t' +
                   (api log = \debug either:
                     '\tconsole.log("[DEBUG] nonexistent getOrFail for " + prop + " from " + JSON.stringify(obj));\n\t'
                   or: '') +
@@ -817,12 +879,42 @@ var api is Object cnew: {
                  'if (typeof(oprop) === "undefined" || oprop === null)\n\t\t' +
                  'return _default;\n\t' +
                  'oprop = type.call(null, oprop);\n\t' +
-                 'if ((typeof(oprop) === "undefined" || oprop === null) && !_default) {\n\t' +
+                 'if ((typeof(oprop) === "undefined" || oprop === null) && typeof(_default) === "undefined") {\n\t' +
                   (api log = \debug either:
                     '\tconsole.log("[DEBUG] nonexistent getOrFail for " + prop + " from " + JSON.stringify(obj));\n\t'
                   or: '') +
                  '\tthrow new Error(`wrong type for argument ${prop}`);\n\t}\n\t' +
                  'return (typeof(oprop) === "undefined" || oprop === null) ? _default : oprop;\n}' .
+    # define the redirect paths
+    redirects each: {:from:spec
+      var to is spec to.
+      var mspec is spec.
+      to startsWith: '/', ifTrue: {
+        to is to skip: 1.
+        spec is endpoints @ to or: actions @ to.
+        spec isNil ifTrue: {
+            errPen red writeln: '$$mspec missing target $$to', resetColor.
+            ^Nil.
+        }.
+        spec mode = 'post' ifTrue: {
+          outPen writeln: 'app.post("/${{from}}$", async (req, res) => {'.
+        } ifFalse: {
+          outPen writeln: 'app.get("/${{from}}$", async (req, res) => {'.
+        }.
+        to is '/' + to.
+      } ifFalse: {
+        spec mode = 'post' ifTrue: {
+          outPen writeln: 'app.post("/${{from}}$", async (req, res) => {'.
+        } ifFalse: {
+          outPen writeln: 'app.get("/${{from}}$", async (req, res) => {'.
+        }.
+      }.
+      api log = \debug ifTrue: {
+        outPen writeln: '\tconsole.log("[DEBUG] redirecting from /${{from}}$ to ${{to}}$");'.
+      }.
+      outPen writeln: '\tres.redirect("${{to}}$");'.
+      outPen writeln: '});'.
+    }.
     # then, define the fancy routes for endpoints
     { File new: 'endpoints', mkdir. } catch: {}, run.
     endpoints each: {:route:spec
@@ -864,7 +956,7 @@ var api is Object cnew: {
       var f is File new: 'endpoints/${{route ~ 's/\\W/_/g'}}$.js'.
       var exists is False.
       f exists ifTrue: {
-        timestamps @ f path < (f stat @ 'st_mtime') ifTrue: {
+        (timestamps @ f path or: 'inf' toNumber) < (f stat @ 'st_mtime') ifTrue: {
           errPen magenta writeln: 'route handler for ${{route}}$ existed at ${{f path}}$ and was modified since creation time, not touching it', resetColor.
           exists is True.
         } ifFalse: {
@@ -882,11 +974,13 @@ var api is Object cnew: {
         timestamps put: f stat @ 'st_ctime' at: f path.
       }.
       var decoder is 'JSON.parse'.
+      var decoderArgs is ''.
       var buffer is '""'.
       var bufcat is \:buf:new '${{buf}}$ += ${{new}}$.toString()'.
       var bufprocess is \:buf buf.
       spec request isNil ifFalse: {
         decoder is spec request decoder!.
+        decoderArgs is spec request decoderArgs!.
         var dec is decoder split: '.' max: 1, head.
         dec !=: 'JSON', ifTrue: {
           buffer is '[]'.
@@ -910,7 +1004,7 @@ var api is Object cnew: {
         outPen writeln: '\treq.on("end", async function() {'.
         outPen writeln: '\t\tbodyStr = ${{bufprocess applyTo: 'bodyStr'}}$'.
         outPen writeln: '\t\tlet ok = false, handled = false, res_input = null, res_output = null;'.
-        outPen writeln: '\t\tlet jsondec = ${{decoder}}$(bodyStr);'.
+        outPen writeln: '\t\tlet jsondec = ${{decoder}}$(bodyStr${{decoderArgs}}$);'.
       }.
       var fieldsFL is Array new.
       # get the fields
@@ -1044,7 +1138,7 @@ var api is Object cnew: {
       var f is File new: 'endpoints/${{route ~ 's/\\W/_/g'}}$.js'.
       var exists is False.
       f exists ifTrue: {
-        timestamps @ f path < (f stat @ 'st_mtime') ifTrue: {
+        (timestamps @ f path or: 'inf' toNumber) < (f stat @ 'st_mtime') ifTrue: {
           errPen magenta writeln: 'route handler for ${{route}}$ existed at ${{f path}}$ and was modified since creation time, not touching it', resetColor.
           exists is True.
         } ifFalse: {
@@ -1085,11 +1179,13 @@ var api is Object cnew: {
         outPen writeln: '\tconsole.log("[DEBUG] activity on ${{route}}$");'.
       }.
       var decoder is 'JSON.parse'.
+      var decoderArgs is ''.
       var buffer is '""'.
       var bufcat is \:buf:new '${{buf}}$ += ${{new}}$.toString()'.
       var bufprocess is \:buf buf.
       spec request isNil ifFalse: {
         decoder is spec request decoder!.
+        decoderArgs is spec request decoderArgs!.
         var dec is decoder split: '.' max: 1, head.
         dec !=: 'JSON', ifTrue: {
           buffer is '[]'.
@@ -1108,7 +1204,9 @@ var api is Object cnew: {
         outPen writeln: '\treq.on("end", async function() {'.
         outPen writeln: '\t\tbodyStr = ${{bufprocess applyTo: 'bodyStr'}}$'.
         outPen writeln: '\t\tlet ok = false, handled = false, res_input = null, res_output = null;'.
-        outPen writeln: '\t\tlet jsondec = ${{decoder}}$(bodyStr);'.
+        outPen writeln: '\t\tlet jsondec = ${{decoder}}$(bodyStr${{decoderArgs}}$);'.
+      } ifFalse: {
+        outPen writeln: '\tlet ok = false, handled = false, res_input = null, res_output = null;'.
       }.
       (spec request isNil either: True or: { ^spec request fields isNil. }) ifTrue: {
         outPen writeln: '\t\tlet res_input = {};'.
