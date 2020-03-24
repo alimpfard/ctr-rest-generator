@@ -39,7 +39,13 @@ var type is Object cnew: {
           var structureId is my type getOrCreateStructure: defn.
           my type register: my name as: structureId.
           Reflect addGlobalVariable: my name.
-          type is Type cnew: { structureId => structureId. underlayingJSType => Nil. returns => False. } named: my name.
+          type is Type cnew: {
+            structureId => structureId.
+            underlayingJSType => Nil.
+            returns => False.
+            nullable?: False.
+            native?: False.
+          } named: my name.
           my type setType: my name to: type.
           Reflect set: my name to: type.
         }.
@@ -106,8 +112,11 @@ var Type is Object cnew: {
   on: 'cnew:named:' do: {:blk:name
     ^me cnew: blk, name: name.
   }.
-  genAccessors: ['structureId', 'return', 'returns', 'native?', 'itype!'].
+  genAccessors: ['structureId', 'return', 'returns', 'native?', 'itype!', 'nullable?'].
   itype!: Nil.
+  nullable?: False.
+  on: '_isEnum' do: { ^False. }.
+  on: '_isReference' do: { ^False. }.
   on: 'name:' do: {:name my name is name. }.
   on: 'toString' do: { ^my name. }.
   on: 'applyAll:' do: {
@@ -128,7 +137,8 @@ var Type is Object cnew: {
       pure? => False.
       returns => False.
       return => Nil.
-      genAccessors: ['fname', 'ftype', 'unique?', 'pure?'].
+      genAccessors: ['fname', 'ftype', 'unique?', 'pure?', 'secret?'].
+      secret?: False.
       on: 'unique' do: { my unique? is True. }.
       on: 'pure' do: { my pure? is True. }. # only applies to models
       on: 'toString' do: {
@@ -139,6 +149,8 @@ var Type is Object cnew: {
       on: 'default!' do: { ^my default. }.
       on: 'jsdefault' do: { ^my default or: 'undefined'. }.
       on: 'default' do: { ^my default or: my ftype _underlayingJSType, or: my ftype. }.
+      on: 'nullable' do: { my ftype nullable?: True. }.
+      on: 'secret' do: { secret?: True. }.
       on: 'type' do: { ^'NameTypePair'. }.
       on: 'applyAll:' do: {:x default: x head. }.
       on: '=' do: {:other
@@ -155,6 +167,7 @@ var Type is Object cnew: {
 var ArrayType is Type cnew: {
   typemap => Map new.
   returns => False.
+  nullable?: False.
   on: 'getOrCreate:' do: {:inner
     var instance is my typemap at: inner.
     instance isNil ifTrue: {
@@ -168,6 +181,7 @@ var ArrayType is Type cnew: {
   on: 'create:' do: {:self:inner
     ^me cnew: {
       native?: True.
+      nullable?: False.
       etype => inner.
     }.
   }.
@@ -180,24 +194,28 @@ var ArrayType is Type cnew: {
 var int is Type cnew: {
   returns => False.
   underlayingJSType => 'Number'.
+  nullable?: False.
   native?: True.
 } named: 'int'.
 
 var string is Type cnew: {
   returns => False.
   underlayingJSType => 'String'.
+  nullable?: False.
   native?: True.
 } named: 'string'.
 
 var double is Type cnew: {
   returns => False.
   underlayingJSType => 'Number'.
+  nullable?: False.
   native?: True.
 } named: 'double'.
 
 var boolean is Type cnew: {
   returns => False.
   underlayingJSType => 'Boolean'.
+  nullable?: False.
   native?: True.
 } named: 'boolean'.
 
@@ -209,9 +227,12 @@ var enum is Object cnew: {
     ty isNil ifTrue: {
       var name is 'enum' + my choicemap count.
       ty is Type cnew: {
+        on: '_isEnum' do: { ^True. }.
+
         returns => False.
         choices => choices.
         underlayingJSType => name upper1st.
+        nullable?: False.
 
         native?: False.
         itype!: self.
@@ -237,6 +258,9 @@ var Specification is Object cnew: {
   on: 'mode:' do: {:md mode => md. }.
   on: 'mode' do: { ^my mode. }.
   on: 'fields' do: { ^my fields. }.
+  on: 'applyAll:' do: {
+    fields => ArrayType getOrCreate: my fields.
+  }.
 }.
 var RequestSpecification is Specification cnew: {
   decoder => 'JSON.parse'.
@@ -296,6 +320,7 @@ var BeforeSpecification is Specification cnew: {
     my functions each: blk.
   }.
 }.
+
 var Request is Object cnew: {
   on: 'applyAll:' do: {:args
     ^RequestSpecification cnew: {
@@ -358,9 +383,9 @@ var redirects is Map new.
 var extra-imports is HashSet new.
 
 var EndpointSpec is Object cnew: {
-  on: 'create:withRequest:andResponse:andBefore:' do: {:name:request:response:before
+  on: 'create:withRequest:andResponse:andBefore:andMode:' do: {:name:request:response:before:mode
     ^cnew: {
-      mode => api endpointType.
+      mode => mode.
       request => request.
       response => response.
       before => before.
@@ -435,6 +460,8 @@ var endpoint is Object cnew: {
     ^Object cnew: {
       name => name.
       endpoints => endpoints.
+      graphql => False.
+      on: 'graphql' do: { graphql => True. }.
       on: 'applyAll:' do: {:args
         var req is Nil.
         var res is Nil.
@@ -459,7 +486,8 @@ var endpoint is Object cnew: {
             create: my name
             withRequest: req
             andResponse: res
-            andBefore: bef)
+            andBefore: bef
+            andMode: (my graphql either: 'gql' or: api endpointType))
           at: my name.
       }.
     }.
@@ -552,6 +580,7 @@ var model is type cnew: {
 
 var reference is Type cnew: {
   returns => False.
+  nullable?: False.
   on: 'applyAll:' do: {:ex
     ^ReferenceType getOrCreate: ex head.
   }.
@@ -572,7 +601,11 @@ var ReferenceType is Type cnew: {
   }.
   on: 'create:' do: {:inner
     ^me cnew: {
+      on: '_isReference' do: {^True.}.
+      on: '_etype' do: { ^my etype. }.
       etype => inner.
+      nullable?: False.
+      native?: False.
     }.
   }.
   on: '_underlayingJSType' do: { ^'String'. }.
@@ -595,6 +628,9 @@ var api is Object cnew: {
   loglevel => \none. # debug, info, warn, none
   endpointType => 'get'.
   outfile => 'out.js'.
+  graphql => False.
+  graphqlRoot => Nil.
+  graphqlGraphiQL => False.
   on: 'outputFile:' do: {:n
     my ignoreRequests ifTrue: { ^me. }.
     outfile => n.
@@ -642,6 +678,19 @@ var api is Object cnew: {
   }.
   on: 'toString' do: {
     ^'Actions:\n' + const actions + '\n' + ('-' * 80) + '\n' + 'Endpoints:\n' + const endpoints + '\n'.
+  }.
+  on: 'graphqlRoot:' do: {:groot graphqlRoot => groot. }.
+  on: 'graphqlGraphiQL:' do: {:val graphqlGraphiQL => val. }.
+  on: 'graphql' do: {:self
+    graphql => True.
+    ^Object cnew: {
+      on: 'root:' do: {:m_root
+        const self graphqlRoot: m_root.
+      }.
+      on: 'graphiql:' do: {:val
+        const self graphqlGraphiQL: val.
+      }.
+    }.
   }.
   on: 'describe' do: {
     my ignoreRequests ifTrue: { ^Nil. }.
@@ -694,8 +743,48 @@ var api is Object cnew: {
     }.
     ^s.
   }.
+  on: 'isUsingGraphQL?' do: {^my graphql.}.
+  on: 'graphqlRoot' do: { ^my graphqlRoot. }.
+  on: 'graphqlGraphiQL' do: { ^my graphqlGraphiQL. }.
+
   on: 'generate' do: {
     my ignoreRequests ifTrue: { ^Nil. }.
+    var getGraphQlType is {:self:&ty:&isInputType
+      var res is Nil.
+      ty _isEnum ifTrue: {
+        ^ty toString upper1st.
+      }.
+      ty _isReference ifTrue: {
+        ^isInputType either: 'ID' or: ty _etype toString upper1st + 'ID'.
+      }.
+      ty native? ifTrue: {
+        ty isA: ArrayType, ifTrue: {
+          res is '[' + self[(Reflect getProperty: 'etype' ofObject: ty), isInputType] + ']'.
+        } ifFalse: {
+          var name is ty toString.
+          name = 'int' ifTrue: {
+            res is 'Long'. # We allow 64-bit ints
+          } ifFalse: {
+            name = 'string' ifTrue: {
+              res is 'String'.
+            } ifFalse: {
+              name = 'boolean' ifTrue: {
+                res is 'Boolean'.
+              } ifFalse: {
+                name = 'double' ifTrue: {
+                  res is 'Float'.
+                } ifFalse: {
+                  # @FIXME: handle this
+                  thisBlock error: 'unknown native type ' + ty.
+                }.
+              }.
+            }.
+          }.
+        }.
+        ^ty nullable? either: res or: res + '!'.
+      }.
+      ^ty toString.
+    }.
     # generate js...?
     # express + toplevel boilerplate
     outPen writeln: 'var express = require("express");\nvar app = express();\n'.
@@ -735,7 +824,19 @@ var api is Object cnew: {
           v pure? ifTrue: {
             sprops push: k.
           }.
+          v secret? ifTrue: {
+            sprops push: k.
+          }.
           typePen writeln: '\t\'${{k}}$\': arg => ${{v ftype _underlayingJSType or: v ftype}}$.call(null, arg),'.
+        }.
+        api isUsingGraphQL? ifTrue: {
+          sprops push: 'graphqlSchema'.
+          typePen write: '\tgraphqlSchema: `type ${{k}}$ { '.
+          struct each: {:k:v
+            v secret? continue.
+            typePen write: '${{k}}$: ${{getGraphQlType[v ftype, False]}}$ '.
+          }.
+          typePen writeln: '}`,'.
         }.
         typePen write: '\tstaticProperties: [%:L],\n' % [', ', sprops fmap: \:x '"%s"' % [x]].
         typePen writeln: '\tcall(_, value) {'.
@@ -758,6 +859,13 @@ var api is Object cnew: {
       var typename is type toString upper1st.
       typenames push: typename.
       typePen writeln: 'let $$typename = {'.
+      api isUsingGraphQL? ifTrue: {
+        typePen write: '\tgraphqlSchema: `enum ${{typename}}$ { '.
+        type choices! each_v: {:k
+          typePen write: '${{k}}$ '.
+        }.
+        typePen writeln: '}`,'.
+      }.
       typePen writeln: '\tchoices: [%:L],' % [', ', type choices! fmap: \:x '"%s"' % [x escapeDoubleQuotes]].
       typePen writeln: '\tcall(_, value) {'.
       typePen writeln: '\t\tif (${{typename}}$.choices.includes(value))'.
@@ -801,6 +909,18 @@ var api is Object cnew: {
           } ifFalse: {
             modelPen writeln: '\t\'${{k}}$\': arg => ${{v ftype _underlayingJSType or: v ftype}}$.call(null, arg),'.
           }.
+          v secret? ifTrue: {
+            sprops push: k.
+          }.
+        }.
+        api isUsingGraphQL? ifTrue: {
+          sprops push: 'graphqlSchema'.
+          var structureTy is ''.
+          struct each: {:k:v
+            v secret? continue.
+            structureTy +=: '${{k}}$: ${{getGraphQlType[v ftype, False]}}$ '.
+          }.
+          modelPen write: '\tgraphqlSchema: `type ${{k}}$ { $$structureTy } type ${{k}}$ID { $$structureTy } `,'.
         }.
         modelPen write: '\tstaticProperties: [%:L],\n' % [', ', sprops fmap: \:x '"%s"' % [x]].
         modelPen writeln: '\tcall(_, value) {'.
@@ -868,6 +988,110 @@ var api is Object cnew: {
     functionNames each_v: {:funcname
       outPen writeln: 'const $$funcname = require("./utilities/${{funcname}}$.js");'.
     }.
+
+    # are we going to use graphql?
+    api isUsingGraphQL? ifTrue: {
+      outPen writeln: 'var graphqlHTTP = require("express-graphql");'.
+      outPen writeln: 'var graphql = require("graphql");'.
+      var nmodels is Array new.
+      modelnames each_v: {:name
+        nmodels push: ' ${${{name}}$.graphqlSchema} '.
+      }.
+
+      var queryType is Array new.
+      outPen writeln: 'var graphql_root = {'.
+      endpoints each: {:name:spec
+        spec mode = 'gql' ifTrue: {
+          var mqtype is '$$name'.
+          var hasArguments is False.
+          outPen write: '\t${{name}}$: async ('.
+          spec request isNil or: { ^spec request fields isNil. }, ifTrue: {
+            outPen write: ')'.
+          } ifFalse: {
+            var fields is spec request fields.
+            fields isA: Type, ifTrue: {
+              hasArguments is True.
+              outPen write: 'res_input)'.
+            } ifFalse: {
+              hasArguments is fields count > 0.
+              hasArguments ifTrue: {
+                outPen write: 'res_input)'.
+              } ifFalse: {
+                outPen write: ')'.
+              }.
+            }.
+            hasArguments ifTrue: {
+              mqtype +=: '('.
+            }.
+            outPen writeln: ' => {'.
+            fields isA: Type, ifTrue: {
+              model getStructure: fields structureId, each: {:k:v
+                mqtype +=: '${{k}}$: ${{getGraphQlType[v ftype, True]}}$, '.
+              }.
+              mqtype is mqtype from: 0 length: mqtype length - 2.
+              mqtype +=: ')'.
+            } ifFalse: {
+              fields each: {:k:v
+                mqtype +=: '${{k}}$: ${{getGraphQlType[v ftype, True]}}$, '.
+              }.
+              hasArguments ifTrue: {
+                mqtype is mqtype from: 0 length: mqtype length - 2.
+                mqtype +=: ')'.
+              }.
+            }.
+            # @FIXME: "Before"
+            # generate the output structure
+            (spec response isNil either: True or: { ^spec response fields isNil. }) ifTrue: {
+              outPen writeln: '\t\tlet res_output = {'.
+              outPen writeln: '\t\t};'.
+            } ifFalse: {
+              var fields is spec response fields.
+              fields isA: Type, ifTrue: {
+                outPen writeln: '\t\tlet res_output = {} /* ${{fields _underlayingJSType or: fields}}$ */;'.
+                mqtype +=: ': ${{getGraphQlType[fields, False]}}$'.
+              } ifFalse: {
+                # compile a new type for this
+                outPen writeln: '\t\tres_output = {} /* ${{name upper1st}}$Response */;'.
+                var ty is ''.
+                fields each: {:k:v
+                  ty +=: '${{k}}$: ${{getGraphQlType[v ftype, False]}}$ '.
+                }.
+                nmodels push: 'type ${{name upper1st}}$Response { $$ty } '.
+                mqtype +=: ': ${{name upper1st}}$Response'.
+              }.
+            }.
+            outPen writeln: '\t\treturn await process_${{name ~ 's/\\W/_/g'}}$(res_input, res_output);'.
+            outPen writeln: '\t},'.
+            queryType push: mqtype.
+          }.
+        }.
+      }.
+      outPen writeln: '};'.
+      outPen writeln: 'var graphql_schema = graphql.buildSchema(`
+        scalar Long
+        ${{typenames filter_v: {:x ^x !=: 'ArrayType'.}, fmap: \:x '${' + x + '.graphqlSchema}', join: ' '}}$
+        ${{nmodels join: ' '}}$
+        type Query { ${{queryType join: ' '}}$ }
+      `);'.
+      outPen writeln: 'const _models = {'.
+      modelnames each_v: {:name
+        outPen writeln: '\t${{name}}$: ${{name}}$,'.
+      }.
+      outPen writeln: '};'.
+      outPen writeln: 'for (let _type of [${{'%:L' % [', ', modelnames fmap: \:&name '"${{name}}$"']}}$])'.
+      outPen writeln: '\tfor (let name of Object.keys(graphql_schema._typeMap[_type + "ID"]._fields))'.
+      outPen writeln: '\t\tgraphql_schema._typeMap[_type + "ID"]._fields[name].resolve = function(obj) {'.
+      outPen writeln: '\t\t\tif (obj._data)'.
+    	outPen writeln: '\t\t\t	return obj._data.then(auth => auth[name]);'.
+    	outPen writeln: '\t\t\telse {'.
+    	outPen writeln: '\t\t\t	obj._data = _models[_type].findById(obj);'.
+    	outPen writeln: '\t\t\t	return obj._data.then(auth => auth[name]);'.
+    	outPen writeln: '\t\t\t}'.
+    	outPen writeln: '\t\t};'.
+      outPen brk.
+      outPen write: 'app.use("${{api graphqlRoot}}$", graphqlHTTP({\n  schema: graphql_schema,\n  rootValue: graphql_root,\n  graphiql: ${{api graphqlGraphiQL either: 'true' or: 'false'}}$\n}));'.
+    }.
+
     outPen brk.
     outPen writeln: 'function getOrFail(type, obj, prop, _default) {\n\t' +
                  'let oprop = obj[prop];\n\t' +
@@ -927,7 +1151,7 @@ var api is Object cnew: {
       } ifFalse: {
         var fields is spec request fields.
         fields isA: Type, ifTrue: {
-          typedoc_in +=: ' * @param ${{k}}$: ${{fields _underlayingJSType or: fields}}$\n'.
+          typedoc_in +=: ' * = $$fields'.
         } ifFalse: {
           spec request fields each: {:k:v
             typedoc_in +=: ' * @param ${{k}}$: ${{v ftype _underlayingJSType or: v ftype}}$\n'.
@@ -943,11 +1167,11 @@ var api is Object cnew: {
 
         fields isA: Type, ifTrue: {
             typedoc_out +=: ' * = ${{fields _underlayingJSType or: fields}}$\n'.
-            out_constructors +=: 'constructReturn = x => (${{fields _underlayingJSType or: fields}}$).call(null, x);\n'.
+            out_constructors +=: 'let constructReturn = x => (${{fields _underlayingJSType or: fields}}$).call(null, x);\n'.
         } ifFalse: {
           fields each: {:k:v
             typedoc_out +=: ' * @param ${{k}}$: ${{v ftype _underlayingJSType or: v ftype}}$\n'.
-            out_constructors +=: 'construct${{k upper1st}}$ = x => (${{v ftype _underlayingJSType or: v ftype}}$).call(null, x);\n'.
+            out_constructors +=: 'let construct${{k upper1st}}$ = x => (${{v ftype _underlayingJSType or: v ftype}}$).call(null, x);\n'.
           }.
         }.
         typedoc_out +=: ' */\n'.
@@ -973,6 +1197,8 @@ var api is Object cnew: {
         f close.
         timestamps put: f stat @ 'st_ctime' at: f path.
       }.
+      (spec mode = 'gql') continue.
+
       var decoder is 'JSON.parse'.
       var decoderArgs is ''.
       var buffer is '""'.
@@ -1129,7 +1355,7 @@ var api is Object cnew: {
         } ifFalse: {
           spec response fields each: {:k:v
             typedoc_out +=: ' * @param ${{k}}$: ${{v ftype _underlayingJSType or: v ftype}}$\n'.
-            out_constructors +=: 'construct${{k upper1st}}$ = x => (${{v ftype _underlayingJSType or: v ftype}}$).call(null, x);\n'.
+            out_constructors +=: 'let construct${{k upper1st}}$ = x => (${{v ftype _underlayingJSType or: v ftype}}$).call(null, x);\n'.
           }.
         }.
         typedoc_out +=: ' */\n'.

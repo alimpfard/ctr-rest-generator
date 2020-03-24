@@ -6,6 +6,7 @@ dbsession = null;
 const config = require("./config.js");
 const MongoClient = require("mongodb").MongoClient;
 
+const process_Person = require("./endpoints/Person.js");
 const process_countUsers = require("./endpoints/countUsers.js");
 const process_deletePerson = require("./endpoints/deletePerson.js");
 const action_deletePerson_0 = require("./actions/deletePerson-action0.js");
@@ -16,7 +17,40 @@ const action_getPeopleFromCity_0 = require("./actions/getPeopleFromCity-action0.
 const {ArrayType, Enum0} = require("./types.js");
 const {City, Person} = require("./models.js");
 const testUserExists = require("./utilities/testUserExists.js");
+var graphqlHTTP = require("express-graphql");
+var graphql = require("graphql");
+var graphql_root = {
+	Person: async (res_input) => {
+		let res_output = {} /* ArrayType(Person) */;
+		return await process_Person(res_input, res_output);
+	},
+};
+var graphql_schema = graphql.buildSchema(`
+        scalar Long
+        ${Enum0.graphqlSchema}
+         ${City.graphqlSchema}   ${Person.graphqlSchema} 
+        type Query { Person(firstName: String): [Person]! }
+      `);
+const _models = {
+	City: City,
+	Person: Person,
+};
+for (let _type of ["City", "Person"])
+	for (let name of Object.keys(graphql_schema._typeMap[_type + "ID"]._fields))
+		graphql_schema._typeMap[_type + "ID"]._fields[name].resolve = function(obj) {
+			if (obj._data)
+				return obj._data.then(auth => auth[name]);
+			else {
+				obj._data = _models[_type].findById(obj);
+				return obj._data.then(auth => auth[name]);
+			}
+		};
 
+app.use("/gql", graphqlHTTP({
+  schema: graphql_schema,
+  rootValue: graphql_root,
+  graphiql: true
+}));
 function getOrFail(type, obj, prop, _default) {
 	let oprop = obj[prop];
 	if ((typeof(oprop) === "undefined" || oprop === null) && typeof(_default) === "undefined") {
@@ -62,8 +96,8 @@ app.post("/deletePerson", async (req, res) => {
 		let total_failure = {fail_early: false, action_handled_response: false};
 		try {
 			res_input = {
-				'personId': getOrFail(Number, jsondec, 'personId', undefined),
 				'method': getOrFail(Enum0, jsondec, 'method', undefined),
+				'personId': getOrFail(Number, jsondec, 'personId', undefined),
 			};
 
 			let failure = {error:null, ok:null};

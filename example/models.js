@@ -2,12 +2,12 @@ const {ArrayType, Enum0} = require("./types.js");
 const { ObjectId } = require("mongodb");
 module.exports = {};
 let City = {
-	'countryCode': arg => Number.call(null, arg),
-	'SOME_CONSTANT': constant value,
-	'cityCode': arg => Number.call(null, arg),
 	'city': arg => String.call(null, arg),
+	'cityCode': arg => Number.call(null, arg),
+	'SOME_CONSTANT': constant value,
+	'countryCode': arg => Number.call(null, arg),
 	'country': arg => String.call(null, arg),
-	staticProperties: ["call", "db", "findById", "staticProperties", "forEach", "SOME_CONSTANT"],
+	graphqlSchema: `type City { city: String cityCode: Long! SOME_CONSTANT: String countryCode: Long! country: String  } type CityID { city: String cityCode: Long! SOME_CONSTANT: String countryCode: Long! country: String  } `,	staticProperties: ["call", "db", "findById", "staticProperties", "forEach", "SOME_CONSTANT", "graphqlSchema"],
 	call(_, value) {
 		let obj = {};
 		for (property in City)
@@ -34,10 +34,10 @@ let City = {
 module.exports["City"] = City
 
 let Person = {
-	'lastName': arg => String.call(null, arg),
 	'city': arg => String.call(null, arg),
 	'firstName': arg => String.call(null, arg),
-	staticProperties: ["call", "db", "findById", "staticProperties", "forEach"],
+	'lastName': arg => String.call(null, arg),
+	graphqlSchema: `type Person { city: CityID firstName: String lastName: String  } type PersonID { city: CityID firstName: String lastName: String  } `,	staticProperties: ["call", "db", "findById", "staticProperties", "forEach", "graphqlSchema"],
 	call(_, value) {
 		let obj = {};
 		for (property in Person)

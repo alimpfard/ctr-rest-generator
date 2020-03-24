@@ -1,5 +1,6 @@
 module.exports = {};
 let Enum0 = {
+	graphqlSchema: `enum Enum0 { wipe hide }`,
 	choices: ["wipe", "hide"],
 	call(_, value) {
 		if (Enum0.choices.includes(value))

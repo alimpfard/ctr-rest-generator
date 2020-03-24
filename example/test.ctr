@@ -43,4 +43,15 @@ endpoint countUsers [
     ]
 ].
 
+endpoint Person graphql [
+    Request [
+        string firstName nullable
+    ],
+    Response Person[]
+].
+
+api graphql
+    root: '/gql',
+    graphiql: True.
+
 api generate.
