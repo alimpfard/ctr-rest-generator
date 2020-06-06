@@ -116,4 +116,4 @@ api graphql
 ```
 Will enable graphql, mount it at `/graphql` and enable graphiql
 
-see [the example](example/test.ctr) for an example
+see [the example](example/test.ctr) for an example, and [see here for its documentation](https://alimpfard.github.io/ctr-rest-generator/example/example-docs/html/)
