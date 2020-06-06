@@ -758,6 +758,329 @@ var api is Object cnew: {
   on: 'graphqlRoot' do: { ^my graphqlRoot. }.
   on: 'graphqlGraphiQL' do: { ^my graphqlGraphiQL. }.
 
+  on: 'docs' do: {
+    # Generate a bunch of structs for each type
+    var f is File new: 'docs-container.cpp'.
+    f exists ifTrue: {
+      errPen magenta write: 'docs file exists at $$f', red write: ' overwriting it.', resetColor brk.
+    }.
+    f open: 'w+'.
+    var docsPen is pPen for: f.
+    # Stub base class for requests
+    docsPen writeln: ?>
+    class Endpoint {
+      static constexpr bool is_pure = false;
+      static constexpr bool is_action = false;
+      virtual ResponseType perform(RequestType) = 0;
+    };
+    class Action {
+      virtual void run() = 0;
+    };
+    <?.
+    var enums_used is HashMap new.
+    type allInstanceTypes each: {:k:v
+      v isA: Number, ifFalse: {
+        docsPen writeln: '/// Native type $$k'.
+      }.
+      docsPen writeln: 'struct $$k {'.
+      var typename is k.
+      v isA: Number, ifTrue: {
+        var struct is type getStructure: v.
+        struct each: {:k:v
+          var value is Nil.
+          v ftype _isEnum ifTrue: {
+            enums_used contains: v ftype toString, ifTrue: {
+              enums_used at: v ftype toString, push: [typename, k].
+            } ifFalse: {
+              enums_used put: (Array < [typename, k]) at: v ftype toString.
+            }.
+          }.
+          v pure? ifTrue: {
+            docsPen writeln: '\t/// Pure property'.
+            value is v default!.
+          }.
+          v secret? ifTrue: {
+            docsPen writeln: '\t/// Secret property'.
+          }.
+          v xalias isNil ifFalse: {
+            docsPen writeln: '\t/// An alias to ${{v xalias}}$'.
+          }.
+          docsPen write: '\t${{v ftype}}$ ${{k}}$'.
+          value isNil ifFalse: {
+            docsPen write: ' = $$value'.
+          }.
+          docsPen writeln: ';'.
+        }.
+      }.
+      docsPen writeln: '};'.
+    }.
+    model allInstanceTypes each: {:k:v
+      docsPen writeln: 'struct $$k {'.
+      var modelname is k.
+      v isA: Number, ifTrue: {
+        var struct is model getStructure: v.
+        struct each: {:k:v
+          var value is Nil.
+          var modifier is ' '.
+          v ftype _isEnum ifTrue: {
+            enums_used contains: v ftype toString, ifTrue: {
+              enums_used at: v ftype toString, push: [modelname, k].
+            } ifFalse: {
+              enums_used put: (Array < [modelname, k]) at: v ftype toString.
+            }.
+          }.
+          v pure? ifTrue: {
+            modifier +=: 'static '.
+            value is v default!.
+          }.
+          v secret? ifTrue: {
+            docsPen writeln: '\t/// Secret property'.
+            modifier +=: 'hidden '.
+          }.
+          v xalias isNil ifFalse: {
+            docsPen writeln: '\t/// An alias to ${{v xalias}}$'.
+          }.
+          docsPen write: '\t${{modifier}}$${{v ftype}}$ ${{k}}$'.
+          value isNil ifFalse: {
+            docsPen write: ' = $$value'.
+          }.
+          docsPen writeln: ';'.
+        }.
+      }.
+      docsPen writeln: '};'.
+    }.
+    function allInstanceTypes each: {:k:v
+      v isA: Number, ifTrue: {
+        var struct is function getStructure: v.
+        var type is function allTypeDefs at: k.
+        var return-name is 'void'.
+        type returns ifTrue: {
+          return-name is type return ftype toString.
+        }.
+        var args is Array new.
+        struct each: {:k:v
+          args push: '${{v ftype}}$ ${{k}}$'.
+        }.
+        docsPen writeln: '${{return-name}}$ ${{k}}$(${{args join: ', '}}$);'.
+      }.
+    }.
+    endpoints each: {:route:spec
+      docsPen writeln: '/// Handles route "${{route}}$"'.
+      var routename is route ~ 's/\\W/_/g' + 'RouteEndpoint'.
+      docsPen writeln: 'class ${{routename}}$ : public Endpoint {'.
+      (spec request isNil either: True or: { ^spec request fields isNil. }) ifFalse: {
+        var fields is spec request fields.
+        fields isA: Type, ifTrue: {
+          docsPen writeln: '\tusing ResponseType = ${{fields}}$;'.
+        } ifFalse: {
+          var typename is 'ResponseType'.
+          docsPen writeln: '\tstruct $$typename {'.
+          spec request fields each: {:k:v
+            var value is Nil.
+            v ftype _isEnum ifTrue: {
+              enums_used contains: v ftype toString, ifTrue: {
+                enums_used at: v ftype toString, push: [routename, typename, k].
+              } ifFalse: {
+                enums_used put: (Array < [routename, typename, k]) at: v ftype toString.
+              }.
+            }.
+            v pure? ifTrue: {
+              docsPen writeln: '\t\t/// Pure property'.
+              value is v default!.
+            }.
+            v secret? ifTrue: {
+              docsPen writeln: '\t\t/// Secret property'.
+            }.
+            v xalias isNil ifFalse: {
+              docsPen writeln: '\t\t/// An alias to ${{v xalias}}$'.
+            }.
+            docsPen write: '\t\t${{v ftype}}$ ${{k}}$'.
+            value isNil ifFalse: {
+              docsPen write: ' = $$value'.
+            }.
+            docsPen writeln: ';'.
+          }.
+          docsPen writeln: '\t};'.
+        }.
+      }.
+
+      (spec response isNil either: True or: { ^spec response fields isNil. }) ifFalse: {
+        var fields is spec response fields.
+        fields isA: Type, ifTrue: {
+          docsPen writeln: '\tusing ResponseType = ${{fields}}$;'.
+        } ifFalse: {
+          var typename is 'ResponseType'.
+          docsPen writeln: '\tstruct $$typename {'.
+          spec response fields each: {:k:v
+            var value is Nil.
+            v ftype _isEnum ifTrue: {
+              enums_used contains: v ftype toString, ifTrue: {
+                enums_used at: v ftype toString, push: [routename, typename, k].
+              } ifFalse: {
+                enums_used put: (Array < [routename, typename, k]) at: v ftype toString.
+              }.
+            }.
+            v pure? ifTrue: {
+              docsPen writeln: '\t\t/// Pure property'.
+              value is v default!.
+            }.
+            v secret? ifTrue: {
+              docsPen writeln: '\t\t/// Secret property'.
+            }.
+            v xalias isNil ifFalse: {
+              docsPen writeln: '\t\t/// An alias to ${{v xalias}}$'.
+            }.
+            docsPen write: '\t\t${{v ftype}}$ ${{k}}$'.
+            value isNil ifFalse: {
+              docsPen write: ' = $$value'.
+            }.
+            docsPen writeln: ';'.
+          }.
+          docsPen writeln: '\t};'.
+        }.
+      }.
+
+      docsPen writeln: '\t\tstatic constexpr bool is_pure = false;'.
+      docsPen writeln: '\t\tstatic constexpr bool is_action = false;'.
+      docsPen writeln: '\t\tvirtual ResponseType perform(RequestType) override;'.
+
+      spec before isNil ifFalse: {
+        docsPen writeln: '\t\t/// Runs before main handler (\\ref ${{routename}}$::perform)'.
+        docsPen writeln: '\t\tstatic constexpr BeforeFunction before_functions[] = {'.
+        spec before each: {:func:fn
+          docsPen write: '\t\t\t${{fn}}$'.
+          docsPen writeln: ','.
+        }.
+        docsPen writeln: '\t\t};'.
+      }.
+
+      docsPen writeln: '};'.
+    }.
+    actions each: {:route:spec
+      docsPen writeln: '/// Handles route "${{route}}$"'.
+      var routename is route ~ 's/\\W/_/g' + 'RouteAction'.
+      docsPen writeln: 'class ${{routename}}$ : public Endpoint {'.
+      (spec request isNil either: True or: { ^spec request fields isNil. }) ifFalse: {
+        var fields is spec request fields.
+        fields isA: Type, ifTrue: {
+          docsPen writeln: '\tusing ResponseType = ${{fields}}$;'.
+        } ifFalse: {
+          var typename is 'ResponseType'.
+          docsPen writeln: '\tstruct $$typename {'.
+          spec request fields each: {:k:v
+            var value is Nil.
+            v ftype _isEnum ifTrue: {
+              enums_used contains: v ftype toString, ifTrue: {
+                enums_used at: v ftype toString, push: [routename, typename, k].
+              } ifFalse: {
+                enums_used put: (Array < [routename, typename, k]) at: v ftype toString.
+              }.
+            }.
+            v pure? ifTrue: {
+              docsPen writeln: '\t\t/// Pure property'.
+              value is v default!.
+            }.
+            v secret? ifTrue: {
+              docsPen writeln: '\t\t/// Secret property'.
+            }.
+            v xalias isNil ifFalse: {
+              docsPen writeln: '\t\t/// An alias to ${{v xalias}}$'.
+            }.
+            docsPen write: '\t\t${{v ftype}}$ ${{k}}$'.
+            value isNil ifFalse: {
+              docsPen write: ' = $$value'.
+            }.
+            docsPen writeln: ';'.
+          }.
+          docsPen writeln: '\t};'.
+        }.
+      }.
+
+      (spec response isNil either: True or: { ^spec response fields isNil. }) ifFalse: {
+        var fields is spec response fields.
+        fields isA: Type, ifTrue: {
+          docsPen writeln: '\tusing ResponseType = ${{fields}}$;'.
+        } ifFalse: {
+          var typename is 'ResponseType'.
+          docsPen writeln: '\tstruct $$typename {'.
+          spec response fields each: {:k:v
+            var value is Nil.
+            v ftype _isEnum ifTrue: {
+              enums_used contains: v ftype toString, ifTrue: {
+                enums_used at: v ftype toString, push: [routename, typename, k].
+              } ifFalse: {
+                enums_used put: (Array < [routename, typename, k]) at: v ftype toString.
+              }.
+            }.
+            v pure? ifTrue: {
+              docsPen writeln: '\t\t/// Pure property'.
+              value is v default!.
+            }.
+            v secret? ifTrue: {
+              docsPen writeln: '\t\t/// Secret property'.
+            }.
+            v xalias isNil ifFalse: {
+              docsPen writeln: '\t\t/// An alias to ${{v xalias}}$'.
+            }.
+            docsPen write: '\t\t${{v ftype}}$ ${{k}}$'.
+            value isNil ifFalse: {
+              docsPen write: ' = $$value'.
+            }.
+            docsPen writeln: ';'.
+          }.
+          docsPen writeln: '\t};'.
+        }.
+      }.
+
+      docsPen writeln: '\t\tstatic constexpr bool is_pure = ${{spec mode = 'post' either: 'false' or: 'true'}}$;'.
+      docsPen writeln: '\t\tstatic constexpr bool is_action = true;'.
+      docsPen writeln: '\t\tvirtual ResponseType perform(RequestType) override;'.
+
+      spec before isNil ifFalse: {
+        docsPen writeln: '\t\tstatic constexpr BeforeFunction before_functions[] = {'.
+        spec before each: {:func:fn
+          docsPen write: '\t\t\t${{fn}}$'.
+          docsPen writeln: ','.
+        }.
+        docsPen writeln: '\t\t};'.
+      }.
+
+      spec action each: {:_:value
+        var name is value ~ 's/\\W/_/g'.
+        name is name upper1st.
+        docsPen writeln: '\t\tstruct $$name : public Action {'.
+        docsPen writeln: '\t\t\tvirtual void run() override;'.
+        docsPen writeln: '\t\t};'.
+      }.
+
+      docsPen writeln: '\t\t/// Runs before main handler (\\ref ${{routename}}$::perform)'.
+      docsPen writeln: '\t\tstatic constexpr Action actions[] = {'.
+      spec action each: {:_:value
+        var name is value ~ 's/\\W/_/g'.
+        name is name upper1st.
+        docsPen write: '\t\t\t${{name}}$::run'.
+        docsPen writeln: ','.
+      }.
+      docsPen writeln: '\t\t};'.
+
+
+      docsPen writeln: '};'.
+    }.
+    enum choicemap each: {:_:type
+      var typename is type toString.
+      docsPen writeln: '/// Enumeration values for $$typename'.
+      var used is enums_used at: typename.
+      used isNil ifFalse: {
+        docsPen writeln: '/// Used in ' + (used fmap: \:x '\\ref ${{x join: '::'}}$', join: ' ').
+      }.
+      docsPen writeln: 'enum class $$typename {'.
+      type choices! each_v: {:choice
+        docsPen writeln: '\t${{(choice ~ 's/\\W/_/g') upper1st}}$,'.
+      }.
+      docsPen writeln: '};'.
+    }.
+    f close.
+  }.
   on: 'generate' do: {
     my ignoreRequests ifTrue: { ^Nil. }.
     var getGraphQlType is {:self:&ty:&isInputType
