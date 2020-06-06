@@ -135,12 +135,21 @@ var Type is Object cnew: {
       default => Nil.
       unique? => False.
       pure? => False.
+      xalias => Nil.
       returns => False.
       return => Nil.
-      genAccessors: ['fname', 'ftype', 'unique?', 'pure?', 'secret?'].
+      genAccessors: ['fname', 'ftype', 'unique?', 'pure?', 'secret?', 'xalias'].
       secret?: False.
       on: 'unique' do: { my unique? is True. }.
       on: 'pure' do: { my pure? is True. }. # only applies to models
+      on: 'alias' do: {:self
+        ^Object cnew: {
+          on: 'applyAll:' do: {:value
+            const self xalias: value head.
+            ^const self.
+          }.
+        }.
+      }.
       on: 'toString' do: {
         ^'<%s %s>' % [my ftype, my fname].
       }.
@@ -452,6 +461,7 @@ var RedirectSpec is Object cnew: {
 }.
 
 var endpoint is Object cnew: {
+  on: 'process:' do: {:name ^respondTo: name. }.
   on: 'respondTo:' do: {:name
     endpoints contains: name, ifTrue: {
       outPen red writeln: 'an endpoint named \'${{name}}$\' has already been registered'.
@@ -494,6 +504,7 @@ var endpoint is Object cnew: {
   }.
 }.
 var action is Object cnew: {
+  on: 'process:' do: {:name ^respondTo: name. }.
   on: 'respondTo:' do: {:name
     actions contains: name, ifTrue: {
       errPen red writeln: 'an action named \'${{name}}$\' has already been registered'.
@@ -819,13 +830,17 @@ var api is Object cnew: {
         typenames push: k.
         typePen writeln: 'let $$k = {'.
         var struct is type getStructure: v.
-        var sprops is Array < 'call' ; 'staticProperties' ; 'forEach'.
+        var sprops is Array < 'call' ; 'staticProperties' ; 'forEach' ; 'aliasedName'.
+        var aliases is HashMap new.
         struct each: {:k:v
           v pure? ifTrue: {
             sprops push: k.
           }.
           v secret? ifTrue: {
             sprops push: k.
+          }.
+          v xalias isNil ifFalse: {
+            aliases put: v xalias at: k.
           }.
           typePen writeln: '\t\'${{k}}$\': arg => ${{v ftype _underlayingJSType or: v ftype}}$.call(null, arg),'.
         }.
@@ -838,13 +853,19 @@ var api is Object cnew: {
           }.
           typePen writeln: '}`,'.
         }.
+        var alias_ is Array new.
+        aliases each: \:k:v alias_ push: ['"%s"' % [k], '"%s"' % [v]].
+        typePen write: '\taliasedName: {%:L},\n' % [', ', alias_ fmap: \:x '%s: %s' % [x head, x last]].
         typePen write: '\tstaticProperties: [%:L],\n' % [', ', sprops fmap: \:x '"%s"' % [x]].
         typePen writeln: '\tcall(_, value) {'.
         typePen writeln: '\t\tlet obj = {};'.
         typePen writeln: '\t\tfor (property in ${{k}}$)'.
-        typePen writeln: '\t\t\tif ((!${{k}}$.staticProperties.includes(property)) && ${{k}}$.hasOwnProperty(property))'.
-        typePen writeln: '\t\t\t\tobj[property] = ${{k}}$[property](value[property]);'.
-        typePen writeln: '\t\treturn obj;\n\t},'.
+        typePen writeln: '\t\t\tif ((!${{k}}$.staticProperties.includes(property))) {'.
+        typePen writeln: '\t\t\t\tif (${{k}}$.hasOwnProperty(property))'.
+        typePen writeln: '\t\t\t\t\tobj[property] = ${{k}}$[property](value[property]);'.
+        typePen writeln: '\t\t\t\tif (${{k}}$.aliasedName[property])'.
+        typePen writeln: '\t\t\t\t\t\tobj[property] = ${{k}}$[property](value[${{k}}$.aliasedName[property]]);'.
+        typePen writeln: '\t\t\t}\n\t\treturn obj;\n\t},'.
         typePen writeln: '\tforEach(self, callback) {'.
         typePen writeln: '\t\tfor (property in ${{k}}$)'.
         typePen writeln: '\t\t\tif ((!${{k}}$.staticProperties.includes(property)) && self.hasOwnProperty(property))'.
@@ -898,7 +919,8 @@ var api is Object cnew: {
         modelnames push: k.
         modelPen writeln: 'let $$k = {'.
         var struct is model getStructure: v.
-        var sprops is Array < 'call' ; 'db' ; 'findById' ; 'staticProperties' ; 'forEach'.
+        var sprops is Array < 'call' ; 'db' ; 'findById' ; 'staticProperties' ; 'forEach' ; 'aliasedName'.
+        var aliases is HashMap new.
         struct each: {:k:v
           v pure? ifTrue: {
             sprops push: k.
@@ -912,6 +934,9 @@ var api is Object cnew: {
           v secret? ifTrue: {
             sprops push: k.
           }.
+          v xalias isNil ifFalse: {
+            aliases put: v xalias at: k.
+          }.
         }.
         api isUsingGraphQL? ifTrue: {
           sprops push: 'graphqlSchema'.
@@ -922,13 +947,19 @@ var api is Object cnew: {
           }.
           modelPen write: '\tgraphqlSchema: `type ${{k}}$ { $$structureTy } type ${{k}}$ID { $$structureTy } `,'.
         }.
+        var alias_ is Array new.
+        aliases each: \:k:v alias_ push: ['"%s"' % [k], '"%s"' % [v]].
+        modelPen write: '\taliasedName: {%:L},\n' % [', ', alias_ fmap: \:x '%s: %s' % [x head, x last]].
         modelPen write: '\tstaticProperties: [%:L],\n' % [', ', sprops fmap: \:x '"%s"' % [x]].
         modelPen writeln: '\tcall(_, value) {'.
         modelPen writeln: '\t\tlet obj = {};'.
         modelPen writeln: '\t\tfor (property in ${{k}}$)'.
-        modelPen writeln: '\t\t\tif ((!${{k}}$.staticProperties.includes(property)) && ${{k}}$.hasOwnProperty(property))'.
-        modelPen writeln: '\t\t\t\tobj[property] = ${{k}}$[property](value[property]);'.
-        modelPen writeln: '\t\treturn obj;\n\t},'.
+        modelPen writeln: '\t\t\tif ((!${{k}}$.staticProperties.includes(property))) {'.
+        modelPen writeln: '\t\t\t\tif (${{k}}$.hasOwnProperty(property))'.
+        modelPen writeln: '\t\t\t\t\tobj[property] = ${{k}}$[property](value[property]);'.
+        modelPen writeln: '\t\t\t\tif (${{k}}$.aliasedName[property])'.
+        modelPen writeln: '\t\t\t\t\t\tobj[property] = ${{k}}$[property](value[${{k}}$.aliasedName[property]]);'.
+        modelPen writeln: '\t\t\t}\n\t\treturn obj;\n\t},'.
         modelPen writeln: '\tforEach(self, callback) {'.
         modelPen writeln: '\t\tfor (property in ${{k}}$)'.
         modelPen writeln: '\t\t\tif ((!${{k}}$.staticProperties.includes(property)) && self.hasOwnProperty(property))'.
@@ -1115,9 +1146,10 @@ var api is Object cnew: {
       var mspec is spec.
       to startsWith: '/', ifTrue: {
         to is to skip: 1.
-        spec is endpoints @ to or: actions @ to.
+        var target is to split: '?' max: 1, head.
+        spec is endpoints @ to or: actions @ target.
         spec isNil ifTrue: {
-            errPen red writeln: '$$mspec missing target $$to', resetColor.
+            errPen red writeln: '$$mspec missing target $$target', resetColor.
             ^Nil.
         }.
         spec mode = 'post' ifTrue: {
@@ -1234,6 +1266,7 @@ var api is Object cnew: {
       }.
       var fieldsFL is Array new.
       # get the fields
+        outPen writeln: '\t\tlet total_failure = {fail_early: false, action_handled_response: false};'.
       (spec request isNil either: True or: { ^spec request fields isNil. }) ifTrue: {
         outPen writeln: '\t\ttry {'.
         outPen writeln: '\t\t\tres_input = {};'.
@@ -1296,6 +1329,10 @@ var api is Object cnew: {
           outPen write: ') &&\n\t\t\t    '.
         }.
         outPen writeln: 'true)) {'.
+        api log = \debug ifTrue: {
+            outPen writeln: '\t\t\t\tconsole.log("failure: ");'.
+            outPen writeln: '\t\t\t\tconsole.log(failure);'.
+        }.
         outPen writeln: '\t\t\t\thandled = true;\n\t\t\t\tres.status(500).send(failure);'.
         outPen writeln: '\t\t\t\treturn;'.
         outPen writeln: '\t\t\t}'.
@@ -1317,8 +1354,9 @@ var api is Object cnew: {
           outPen writeln: '\t\t\t};\n'.
         }.
       }.
-      outPen writeln: '\t\t\tres.send(await process_${{route ~ 's/\\W/_/g'}}$(res_input, res_output));\n\t\t\tok = true;\n'.
-      outPen writeln: '\t\t} catch(e) {\n\t\t\tok = false;\n\t\t\thandled = true;\n\t\t\tres.status(500).send({_error: e.toString(), ...res_output});'.
+      outPen writeln: '\t\t\t(total_failure.action_handled_response ? (x=>{console.log(x)}) : x=>{res.send(x)})(await process_${{route ~ 's/\\W/_/g'}}$(res_input, res_output));\n\t\t\tok = true;\n'.
+      outPen writeln: '\t\t} catch(e) {\n\t\t\tconsole.error(e);\n\t\t\tok = false;'.
+      outPen writeln: '\t\t\tif (!total_failure.action_handled_response) {\n\t\t\t\thandled = true;\n\t\t\t\tres.status(500).send({_error: e.toString(), ...res_output});\n\t\t\t} else {\n\t\t\t\thandled = true;\n\t\t\t}'.
       outPen writeln: '\t\t} finally {\n\t\t\tif (!ok && !handled) res.status(500).send(res_output);\n\t\t\t}'.
       outPen writeln: '\n});'.
       spec mode = 'post' ifTrue: {
@@ -1435,7 +1473,7 @@ var api is Object cnew: {
         outPen writeln: '\tlet ok = false, handled = false, res_input = null, res_output = null;'.
       }.
       (spec request isNil either: True or: { ^spec request fields isNil. }) ifTrue: {
-        outPen writeln: '\t\tlet res_input = {};'.
+        outPen writeln: '\t\tlet total_failure = {fail_early: false, action_handled_response: false};'.
       } ifFalse: {
         spec mode = 'post' ifTrue: {
           outPen writeln: '\t\t\tdbsession.startTransaction();'.
@@ -1498,6 +1536,10 @@ var api is Object cnew: {
           outPen write: ') &&\n\t\t\t    '.
         }.
         outPen writeln: 'true)) {'.
+        api log = \debug ifTrue: {
+            outPen writeln: '\t\t\t\tconsole.log("failure: ");'.
+            outPen writeln: '\t\t\t\tconsole.log(failure);'.
+        }.
         outPen writeln: '\t\t\t\thandled = true;\n\t\t\t\tres.status(500).send(failure);'.
         outPen writeln: '\t\t\t\treturn;'.
         outPen writeln: '\t\t\t}'.
@@ -1523,11 +1565,12 @@ var api is Object cnew: {
         outPen write: 'await action_${{route ~ 's/\\W/_/g'}}$_${{idx}}$(res, req, res_output, res_input, total_failure) &&\n\t\t\t    '.
       }.
       outPen writeln: 'true) {'.
-      outPen writeln: '\t\t\t\tres.send(await process_${{route ~ 's/\\W/_/g'}}$(res_input, res_output));'.
+      outPen writeln: '\t\t\t\t(total_failure.action_handled_response ? (x=>{console.log(x)}) : x=>{res.send(x)})(await process_${{route ~ 's/\\W/_/g'}}$(res_input, res_output));'.
       outPen writeln: '\t\t\t\tok = true;\n\t\t\t}'.
       outPen writeln: '\t\t\telse {\n\t\t\t\tok = false;\n\t\t\t}'.
       outPen writeln: '\t\t\thandled = total_failure.action_handled_response;'.
-      outPen writeln: '\t\t} catch(e) {\n\t\t\tok = false;\n\t\t\thandled = true;\n\t\t\tres.status(500).send({_error: e.toString(), ...res_output});'.
+      outPen writeln: '\t\t} catch(e) {\n\t\t\tconsole.error(e);\n\t\t\tok = false;'.
+      outPen writeln: '\t\t\tif (!total_failure.action_handled_response) {\n\t\t\t\thandled = true;\n\t\t\t\tres.status(500).send({_error: e.toString(), ...res_output});\n\t\t\t} else {\n\t\t\t\thandled = true;\n\t\t\t}'.
       outPen writeln: '\t\t} finally {'.
       spec mode = 'post' ifTrue: {
         outPen writeln: '\t\t\tif (ok && !total_failure.fail_early)\n\t\t\t\tawait dbsession.commitTransaction();\n\t\t\telse await dbsession.abortTransaction();'.
