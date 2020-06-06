@@ -1,6 +1,6 @@
 ## REST + GraphQL API boilerplate generator
 
-Generates a directory of js files that handle a given API specification (Citron DSL)
+Generates a directory of js files that handle a given API specification (Citron DSL), and optionally creates crude documentation for them.
 
 
 structure of the input file:
@@ -11,7 +11,7 @@ import generator: \*.
 { type declarations }
 { api point spec }
 
-api generate | api describe
+api generate | api describe | api docs
 ```
 
 type declaration:

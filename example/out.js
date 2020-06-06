@@ -15,7 +15,7 @@ const process_getPeopleFromCity = require("./endpoints/getPeopleFromCity.js");
 const action_getPeopleFromCity_0 = require("./actions/getPeopleFromCity-action0.js");
 
 const {ArrayType, Enum0} = require("./types.js");
-const {City, Person} = require("./models.js");
+const {Person, City} = require("./models.js");
 const testUserExists = require("./utilities/testUserExists.js");
 var graphqlHTTP = require("express-graphql");
 var graphql = require("graphql");
@@ -28,14 +28,14 @@ var graphql_root = {
 var graphql_schema = graphql.buildSchema(`
         scalar Long
         ${Enum0.graphqlSchema}
-         ${City.graphqlSchema}   ${Person.graphqlSchema} 
+         ${Person.graphqlSchema}   ${City.graphqlSchema} 
         type Query { Person(firstName: String): [Person]! }
       `);
 const _models = {
-	City: City,
 	Person: Person,
+	City: City,
 };
-for (let _type of ["City", "Person"])
+for (let _type of ["Person", "City"])
 	for (let name of Object.keys(graphql_schema._typeMap[_type + "ID"]._fields))
 		graphql_schema._typeMap[_type + "ID"]._fields[name].resolve = function(obj) {
 			if (obj._data)
@@ -65,19 +65,25 @@ function getOrFail(type, obj, prop, _default) {
 	return (typeof(oprop) === "undefined" || oprop === null) ? _default : oprop;
 }
 app.get("/countUsers", async (req, res) => {
+		let total_failure = {fail_early: false, action_handled_response: false};
 		try {
 			res_input = {};
 			res_output = {
 				'count': null /* Number */,
 			};
 
-			res.send(await process_countUsers(res_input, res_output));
+			(total_failure.action_handled_response ? (x=>{console.log(x)}) : x=>{res.send(x)})(await process_countUsers(res_input, res_output));
 			ok = true;
 
 		} catch(e) {
+			console.error(e);
 			ok = false;
-			handled = true;
-			res.status(500).send({_error: e.toString(), ...res_output});
+			if (!total_failure.action_handled_response) {
+				handled = true;
+				res.status(500).send({_error: e.toString(), ...res_output});
+			} else {
+				handled = true;
+			}
 		} finally {
 			if (!ok && !handled) res.status(500).send(res_output);
 			}
@@ -96,8 +102,8 @@ app.post("/deletePerson", async (req, res) => {
 		let total_failure = {fail_early: false, action_handled_response: false};
 		try {
 			res_input = {
-				'method': getOrFail(Enum0, jsondec, 'method', undefined),
 				'personId': getOrFail(Number, jsondec, 'personId', undefined),
+				'method': getOrFail(Enum0, jsondec, 'method', undefined),
 			};
 
 			let failure = {error:null, ok:null};
@@ -112,7 +118,7 @@ app.post("/deletePerson", async (req, res) => {
 			if (await action_deletePerson_0(res, req, res_output, res_input, total_failure) &&
 			    await action_deletePerson_1(res, req, res_output, res_input, total_failure) &&
 			    true) {
-				res.send(await process_deletePerson(res_input, res_output));
+				(total_failure.action_handled_response ? (x=>{console.log(x)}) : x=>{res.send(x)})(await process_deletePerson(res_input, res_output));
 				ok = true;
 			}
 			else {
@@ -120,9 +126,14 @@ app.post("/deletePerson", async (req, res) => {
 			}
 			handled = total_failure.action_handled_response;
 		} catch(e) {
+			console.error(e);
 			ok = false;
-			handled = true;
-			res.status(500).send({_error: e.toString(), ...res_output});
+			if (!total_failure.action_handled_response) {
+				handled = true;
+				res.status(500).send({_error: e.toString(), ...res_output});
+			} else {
+				handled = true;
+			}
 		} finally {
 			if (ok && !total_failure.fail_early)
 				await dbsession.commitTransaction();
@@ -150,7 +161,7 @@ app.post("/getPeopleFromCity", async (req, res) => {
 
 			if (await action_getPeopleFromCity_0(res, req, res_output, res_input, total_failure) &&
 			    true) {
-				res.send(await process_getPeopleFromCity(res_input, res_output));
+				(total_failure.action_handled_response ? (x=>{console.log(x)}) : x=>{res.send(x)})(await process_getPeopleFromCity(res_input, res_output));
 				ok = true;
 			}
 			else {
@@ -158,9 +169,14 @@ app.post("/getPeopleFromCity", async (req, res) => {
 			}
 			handled = total_failure.action_handled_response;
 		} catch(e) {
+			console.error(e);
 			ok = false;
-			handled = true;
-			res.status(500).send({_error: e.toString(), ...res_output});
+			if (!total_failure.action_handled_response) {
+				handled = true;
+				res.status(500).send({_error: e.toString(), ...res_output});
+			} else {
+				handled = true;
+			}
 		} finally {
 			if (ok && !total_failure.fail_early)
 				await dbsession.commitTransaction();
