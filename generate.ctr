@@ -964,9 +964,9 @@ var api is Object cnew: {
       (spec request isNil either: True or: { ^spec request fields isNil. }) ifFalse: {
         var fields is spec request fields.
         fields isA: Type, ifTrue: {
-          docsPen writeln: '\tusing ResponseType = ${{fields}}$;'.
+          docsPen writeln: '\tusing RequestType = ${{fields}}$;'.
         } ifFalse: {
-          var typename is 'ResponseType'.
+          var typename is 'RequestType'.
           docsPen writeln: '\tstruct $$typename {'.
           spec request fields each: {:k:v
             var value is Nil.

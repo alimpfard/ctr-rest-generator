@@ -3,9 +3,9 @@ const { ObjectId } = require("mongodb");
 module.exports = {};
 let Person = {
 	'firstName': arg => String.call(null, arg),
-	'lastName': arg => String.call(null, arg),
 	'city': arg => String.call(null, arg),
-	graphqlSchema: `type Person { firstName: String lastName: String city: CityID  } type PersonID { firstName: String lastName: String city: CityID  } `,	aliasedName: {},
+	'lastName': arg => String.call(null, arg),
+	graphqlSchema: `type Person { firstName: String city: CityID lastName: String  } type PersonID { firstName: String city: CityID lastName: String  } `,	aliasedName: {},
 	staticProperties: ["call", "db", "findById", "staticProperties", "forEach", "aliasedName", "graphqlSchema"],
 	call(_, value) {
 		let obj = {};
@@ -38,11 +38,11 @@ module.exports["Person"] = Person
 
 let City = {
 	'countryCode': arg => Number.call(null, arg),
-	'cityCode': arg => Number.call(null, arg),
-	'city': arg => String.call(null, arg),
-	'country': arg => String.call(null, arg),
 	'SOME_CONSTANT': constant value,
-	graphqlSchema: `type City { countryCode: Long! cityCode: Long! city: String country: String SOME_CONSTANT: String  } type CityID { countryCode: Long! cityCode: Long! city: String country: String SOME_CONSTANT: String  } `,	aliasedName: {},
+	'cityCode': arg => Number.call(null, arg),
+	'country': arg => String.call(null, arg),
+	'city': arg => String.call(null, arg),
+	graphqlSchema: `type City { countryCode: Long! SOME_CONSTANT: String cityCode: Long! country: String city: String  } type CityID { countryCode: Long! SOME_CONSTANT: String cityCode: Long! country: String city: String  } `,	aliasedName: {},
 	staticProperties: ["call", "db", "findById", "staticProperties", "forEach", "aliasedName", "SOME_CONSTANT", "graphqlSchema"],
 	call(_, value) {
 		let obj = {};

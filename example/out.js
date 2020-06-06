@@ -102,8 +102,8 @@ app.post("/deletePerson", async (req, res) => {
 		let total_failure = {fail_early: false, action_handled_response: false};
 		try {
 			res_input = {
-				'personId': getOrFail(Number, jsondec, 'personId', undefined),
 				'method': getOrFail(Enum0, jsondec, 'method', undefined),
+				'personId': getOrFail(Number, jsondec, 'personId', undefined),
 			};
 
 			let failure = {error:null, ok:null};
